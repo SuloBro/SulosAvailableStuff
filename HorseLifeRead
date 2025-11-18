@@ -7,49 +7,82 @@ local Character
 local Humanoid
 local connections = {}
 
-local currentTheme = "Discord"
+local currentTheme = "Cyberpunk"
 local supportActive = false
 local supportHighlight = nil
 local walkspeedLoop = nil
+local wildOnlyMode = false
+local supportBillboard = nil
 
 local THEMES = {
-	Discord = {
-		FrameBG = Color3.fromRGB(54, 57, 63),
-		TextPrimary = Color3.fromRGB(255, 255, 255),
-		TextSecondary = Color3.fromRGB(180, 180, 180),
-		ButtonTP = {Color3.fromRGB(88, 101, 242), Color3.fromRGB(115, 138, 255)},
-		ButtonRefresh = {Color3.fromRGB(67, 181, 129), Color3.fromRGB(87, 242, 135)},
-		ButtonClose = {Color3.fromRGB(237, 66, 69), Color3.fromRGB(255, 115, 115)},
-		ButtonTheme = {Color3.fromRGB(250, 166, 26), Color3.fromRGB(255, 200, 87)},
-		ButtonSupport = {Color3.fromRGB(138, 43, 226), Color3.fromRGB(186, 85, 211)},
-		WarningBG_Wild = Color3.fromRGB(67, 181, 129),
-		WarningBG_Other = Color3.fromRGB(255, 69, 0),
+	Cyberpunk = {
+		FrameBG = Color3.fromRGB(18, 18, 28),
+		FrameAccent = Color3.fromRGB(28, 28, 42),
+		FrameGlow = Color3.fromRGB(138, 43, 226),
+		TextPrimary = Color3.fromRGB(230, 230, 255),
+		TextSecondary = Color3.fromRGB(150, 150, 200),
+		TextGlow = Color3.fromRGB(138, 43, 226),
+		ButtonTP = {Color3.fromRGB(75, 0, 130), Color3.fromRGB(138, 43, 226)},
+		ButtonRefresh = {Color3.fromRGB(0, 100, 150), Color3.fromRGB(0, 200, 255)},
+		ButtonClose = {Color3.fromRGB(150, 0, 50), Color3.fromRGB(255, 0, 100)},
+		ButtonTheme = {Color3.fromRGB(200, 50, 200), Color3.fromRGB(255, 100, 255)},
+		ButtonSupport = {Color3.fromRGB(255, 100, 0), Color3.fromRGB(255, 200, 0)},
+		ButtonWildOnly = {Color3.fromRGB(0, 150, 100), Color3.fromRGB(0, 255, 200)},
+		WarningBG_Wild = Color3.fromRGB(0, 200, 150),
+		WarningBG_Other = Color3.fromRGB(200, 50, 100),
 		WarningText = Color3.fromRGB(255, 255, 255),
-		NotifBG = Color3.fromRGB(44, 47, 51),
-		NotifText = Color3.fromRGB(255, 255, 255),
-		CornerRadius = UDim.new(0, 12),
-		ButtonCorner = UDim.new(0, 10),
-		StrokeColor = Color3.fromRGB(88, 101, 242),
-		StrokeThickness = 3
+		NotifBG = Color3.fromRGB(28, 28, 42),
+		NotifText = Color3.fromRGB(200, 200, 255),
+		CornerRadius = UDim.new(0, 20),
+		ButtonCorner = UDim.new(0, 15),
+		StrokeColor = Color3.fromRGB(138, 43, 226),
+		StrokeThickness = 3,
 	},
-	Western = {
-		FrameBG = Color3.fromRGB(206, 160, 109),
-		TextPrimary = Color3.fromRGB(255, 255, 255),
-		TextSecondary = Color3.fromRGB(255, 255, 255),
-		ButtonTP = {Color3.fromRGB(143, 109, 74), Color3.fromRGB(180, 140, 100)},
-		ButtonRefresh = {Color3.fromRGB(143, 109, 74), Color3.fromRGB(180, 140, 100)},
-		ButtonClose = {Color3.fromRGB(255, 0, 0), Color3.fromRGB(255, 100, 100)},
-		ButtonTheme = {Color3.fromRGB(143, 109, 74), Color3.fromRGB(180, 140, 100)},
-		ButtonSupport = {Color3.fromRGB(138, 43, 226), Color3.fromRGB(186, 85, 211)},
-		WarningBG_Wild = Color3.fromRGB(50, 150, 50),
-		WarningBG_Other = Color3.fromRGB(165, 42, 42),
+	Galaxy = {
+		FrameBG = Color3.fromRGB(25, 15, 45),
+		FrameAccent = Color3.fromRGB(35, 25, 55),
+		FrameGlow = Color3.fromRGB(100, 50, 200),
+		TextPrimary = Color3.fromRGB(255, 200, 255),
+		TextSecondary = Color3.fromRGB(200, 150, 255),
+		TextGlow = Color3.fromRGB(150, 100, 255),
+		ButtonTP = {Color3.fromRGB(100, 50, 200), Color3.fromRGB(150, 100, 255)},
+		ButtonRefresh = {Color3.fromRGB(50, 100, 200), Color3.fromRGB(100, 150, 255)},
+		ButtonClose = {Color3.fromRGB(200, 50, 100), Color3.fromRGB(255, 100, 150)},
+		ButtonTheme = {Color3.fromRGB(200, 100, 50), Color3.fromRGB(255, 150, 100)},
+		ButtonSupport = {Color3.fromRGB(150, 50, 200), Color3.fromRGB(200, 100, 255)},
+		ButtonWildOnly = {Color3.fromRGB(50, 200, 150), Color3.fromRGB(100, 255, 200)},
+		WarningBG_Wild = Color3.fromRGB(100, 200, 150),
+		WarningBG_Other = Color3.fromRGB(200, 100, 150),
 		WarningText = Color3.fromRGB(255, 255, 255),
-		NotifBG = Color3.fromRGB(180, 140, 100),
-		NotifText = Color3.fromRGB(255, 255, 255),
-		CornerRadius = UDim.new(0, 15),
-		ButtonCorner = UDim.new(0, 12),
-		StrokeColor = Color3.fromRGB(143, 109, 74),
-		StrokeThickness = 3
+		NotifBG = Color3.fromRGB(35, 25, 55),
+		NotifText = Color3.fromRGB(200, 150, 255),
+		CornerRadius = UDim.new(0, 22),
+		ButtonCorner = UDim.new(0, 16),
+		StrokeColor = Color3.fromRGB(150, 100, 255),
+		StrokeThickness = 3,
+	},
+	Neon = {
+		FrameBG = Color3.fromRGB(10, 10, 20),
+		FrameAccent = Color3.fromRGB(20, 20, 30),
+		FrameGlow = Color3.fromRGB(0, 255, 255),
+		TextPrimary = Color3.fromRGB(0, 255, 255),
+		TextSecondary = Color3.fromRGB(100, 255, 255),
+		TextGlow = Color3.fromRGB(0, 255, 255),
+		ButtonTP = {Color3.fromRGB(255, 0, 255), Color3.fromRGB(0, 255, 255)},
+		ButtonRefresh = {Color3.fromRGB(0, 255, 100), Color3.fromRGB(100, 255, 255)},
+		ButtonClose = {Color3.fromRGB(255, 0, 100), Color3.fromRGB(255, 100, 255)},
+		ButtonTheme = {Color3.fromRGB(255, 200, 0), Color3.fromRGB(255, 100, 200)},
+		ButtonSupport = {Color3.fromRGB(200, 0, 255), Color3.fromRGB(255, 0, 255)},
+		ButtonWildOnly = {Color3.fromRGB(0, 255, 150), Color3.fromRGB(150, 255, 0)},
+		WarningBG_Wild = Color3.fromRGB(0, 255, 200),
+		WarningBG_Other = Color3.fromRGB(255, 50, 150),
+		WarningText = Color3.fromRGB(255, 255, 255),
+		NotifBG = Color3.fromRGB(15, 15, 25),
+		NotifText = Color3.fromRGB(0, 255, 255),
+		CornerRadius = UDim.new(0, 25),
+		ButtonCorner = UDim.new(0, 18),
+		StrokeColor = Color3.fromRGB(0, 255, 255),
+		StrokeThickness = 4,
 	}
 }
 
@@ -70,6 +103,7 @@ safeConnect(Player.CharacterAdded, setupCharacter)
 -- GUI Creation
 local GUI = Instance.new("ScreenGui")
 local Frame = Instance.new("Frame")
+local FrameGlow = Instance.new("UIStroke")
 local TitleLabel = Instance.new("TextLabel")
 local IslandLabel = Instance.new("TextLabel")
 local StatusLabel = Instance.new("TextLabel")
@@ -79,9 +113,10 @@ local TeleportButton = Instance.new("TextButton")
 local RefreshButton = Instance.new("TextButton")
 local ThemeButton = Instance.new("TextButton")
 local SupportButton = Instance.new("TextButton")
+local WildOnlyButton = Instance.new("TextButton")
 local CloseButton = Instance.new("TextButton")
 
--- Text Strokes (BLACK for readability)
+-- Text Strokes
 local TitleStroke = Instance.new("UIStroke")
 local IslandStroke = Instance.new("UIStroke")
 local StatusStroke = Instance.new("UIStroke")
@@ -91,6 +126,7 @@ local TeleportTextStroke = Instance.new("UIStroke")
 local RefreshTextStroke = Instance.new("UIStroke")
 local ThemeTextStroke = Instance.new("UIStroke")
 local SupportTextStroke = Instance.new("UIStroke")
+local WildOnlyTextStroke = Instance.new("UIStroke")
 local CloseTextStroke = Instance.new("UIStroke")
 
 -- Notification System
@@ -99,6 +135,17 @@ local NotificationLabel = Instance.new("TextLabel")
 local NotificationCorner = Instance.new("UICorner")
 local NotificationStroke = Instance.new("UIStroke")
 local NotificationTextStroke = Instance.new("UIStroke")
+
+-- Group Warning Frame
+local GroupWarningFrame = Instance.new("Frame")
+local GroupWarningLabel = Instance.new("TextLabel")
+local GroupWarningButton = Instance.new("TextButton")
+local GroupWarningCorner = Instance.new("UICorner")
+local GroupWarningStroke = Instance.new("UIStroke")
+local GroupWarningLabelStroke = Instance.new("UIStroke")
+local GroupWarningButtonCorner = Instance.new("UICorner")
+local GroupWarningButtonStroke = Instance.new("UIStroke")
+local GroupWarningButtonGradient = Instance.new("UIGradient")
 
 -- Loading Screen
 local LoadingFrame = Instance.new("Frame")
@@ -114,10 +161,11 @@ local TeleportCorner = Instance.new("UICorner")
 local RefreshCorner = Instance.new("UICorner")
 local ThemeCorner = Instance.new("UICorner")
 local SupportCorner = Instance.new("UICorner")
+local WildOnlyCorner = Instance.new("UICorner")
 local CloseCorner = Instance.new("UICorner")
 local WarningCorner = Instance.new("UICorner")
 
--- UIStrokes for BORDERS (not text!)
+-- UIStrokes for BORDERS
 local FrameStroke = Instance.new("UIStroke")
 local WarningStroke = Instance.new("UIStroke")
 
@@ -126,13 +174,15 @@ local TeleportGradient = Instance.new("UIGradient")
 local RefreshGradient = Instance.new("UIGradient")
 local ThemeGradient = Instance.new("UIGradient")
 local SupportGradient = Instance.new("UIGradient")
+local WildOnlyGradient = Instance.new("UIGradient")
 local CloseGradient = Instance.new("UIGradient")
 
--- HOVER STROKES (appear on button borders when hovering)
+-- HOVER STROKES
 local TeleportHoverStroke = Instance.new("UIStroke")
 local RefreshHoverStroke = Instance.new("UIStroke")
 local ThemeHoverStroke = Instance.new("UIStroke")
 local SupportHoverStroke = Instance.new("UIStroke")
+local WildOnlyHoverStroke = Instance.new("UIStroke")
 local CloseHoverStroke = Instance.new("UIStroke")
 
 -- Parent corners
@@ -141,8 +191,15 @@ TeleportCorner.Parent = TeleportButton
 RefreshCorner.Parent = RefreshButton
 ThemeCorner.Parent = ThemeButton
 SupportCorner.Parent = SupportButton
+WildOnlyCorner.Parent = WildOnlyButton
 CloseCorner.Parent = CloseButton
 WarningCorner.Parent = WarningLabel
+
+-- Frame Glow Effect
+FrameGlow.Parent = Frame
+FrameGlow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+FrameGlow.Thickness = 4
+FrameGlow.Transparency = 0.3
 
 -- Parent border strokes
 FrameStroke.Parent = Frame
@@ -155,6 +212,7 @@ TeleportGradient.Parent = TeleportButton
 RefreshGradient.Parent = RefreshButton
 ThemeGradient.Parent = ThemeButton
 SupportGradient.Parent = SupportButton
+WildOnlyGradient.Parent = WildOnlyButton
 CloseGradient.Parent = CloseButton
 
 -- Parent hover strokes
@@ -166,6 +224,8 @@ ThemeHoverStroke.Parent = ThemeButton
 ThemeHoverStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 SupportHoverStroke.Parent = SupportButton
 SupportHoverStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+WildOnlyHoverStroke.Parent = WildOnlyButton
+WildOnlyHoverStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 CloseHoverStroke.Parent = CloseButton
 CloseHoverStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
@@ -179,18 +239,19 @@ TeleportTextStroke.Parent = TeleportButton
 RefreshTextStroke.Parent = RefreshButton
 ThemeTextStroke.Parent = ThemeButton
 SupportTextStroke.Parent = SupportButton
+WildOnlyTextStroke.Parent = WildOnlyButton
 CloseTextStroke.Parent = CloseButton
 
--- Setup text strokes (BLACK for readability)
+-- Setup text strokes
 for _, stroke in pairs({TitleStroke, IslandStroke, StatusStroke, WarningTextStroke, ControlsStroke, 
-						TeleportTextStroke, RefreshTextStroke, ThemeTextStroke, SupportTextStroke, CloseTextStroke}) do
+						TeleportTextStroke, RefreshTextStroke, ThemeTextStroke, SupportTextStroke, WildOnlyTextStroke, CloseTextStroke}) do
 	stroke.Color = Color3.fromRGB(0, 0, 0)
 	stroke.Thickness = 2
 	stroke.Transparency = 0
 end
 
--- Setup hover strokes (initially transparent)
-for _, stroke in pairs({TeleportHoverStroke, RefreshHoverStroke, ThemeHoverStroke, SupportHoverStroke, CloseHoverStroke}) do
+-- Setup hover strokes
+for _, stroke in pairs({TeleportHoverStroke, RefreshHoverStroke, ThemeHoverStroke, SupportHoverStroke, WildOnlyHoverStroke, CloseHoverStroke}) do
 	stroke.Thickness = 3
 	stroke.Transparency = 1
 end
@@ -203,7 +264,7 @@ GUI.ResetOnSpawn = false
 LoadingFrame.Name = "LoadingScreen"
 LoadingFrame.Size = UDim2.new(1, 0, 1, 0)
 LoadingFrame.Position = UDim2.new(0, 0, 0, 0)
-LoadingFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+LoadingFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
 LoadingFrame.BorderSizePixel = 0
 LoadingFrame.ZIndex = 10
 LoadingFrame.Parent = GUI
@@ -216,7 +277,7 @@ WelcomeLabel.Position = UDim2.new(0.1, 0, 0.4, 0)
 WelcomeLabel.Text = "Welcome, " .. Player.Name
 WelcomeLabel.Font = Enum.Font.FredokaOne
 WelcomeLabel.TextSize = 36
-WelcomeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+WelcomeLabel.TextColor3 = Color3.fromRGB(138, 43, 226)
 WelcomeLabel.BackgroundTransparency = 1
 WelcomeLabel.TextTransparency = 1
 WelcomeLabel.TextScaled = true
@@ -231,7 +292,7 @@ SubtitleLabel.Position = UDim2.new(0.1, 0, 0.5, 0)
 SubtitleLabel.Text = "Sulo's Horse Catching Farm"
 SubtitleLabel.Font = Enum.Font.FredokaOne
 SubtitleLabel.TextSize = 24
-SubtitleLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+SubtitleLabel.TextColor3 = Color3.fromRGB(150, 100, 255)
 SubtitleLabel.BackgroundTransparency = 1
 SubtitleLabel.TextTransparency = 1
 SubtitleLabel.TextScaled = true
@@ -243,21 +304,21 @@ SubtitleStroke.Thickness = 2
 
 -- Notification Setup
 NotificationFrame.Name = "NotificationFrame"
-NotificationFrame.Size = UDim2.new(0, 300, 0, 60)
+NotificationFrame.Size = UDim2.new(0, 320, 0, 70)
 NotificationFrame.Position = UDim2.new(1, 0, 0, 20)
-NotificationFrame.BackgroundColor3 = THEMES.Discord.NotifBG
+NotificationFrame.BackgroundColor3 = THEMES.Cyberpunk.NotifBG
 NotificationFrame.BorderSizePixel = 0
 NotificationFrame.ZIndex = 100
 NotificationFrame.Visible = false
 NotificationFrame.Parent = GUI
 
-NotificationCorner.CornerRadius = UDim.new(0, 10)
+NotificationCorner.CornerRadius = UDim.new(0, 15)
 NotificationCorner.Parent = NotificationFrame
 
 NotificationStroke.Parent = NotificationFrame
-NotificationStroke.Color = Color3.fromRGB(255, 255, 255)
-NotificationStroke.Thickness = 2
-NotificationStroke.Transparency = 0.5
+NotificationStroke.Color = Color3.fromRGB(138, 43, 226)
+NotificationStroke.Thickness = 3
+NotificationStroke.Transparency = 0.3
 NotificationStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
 NotificationLabel.Size = UDim2.new(1, -20, 1, -20)
@@ -265,7 +326,7 @@ NotificationLabel.Position = UDim2.new(0, 10, 0, 10)
 NotificationLabel.Text = ""
 NotificationLabel.Font = Enum.Font.FredokaOne
 NotificationLabel.TextSize = 16
-NotificationLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+NotificationLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
 NotificationLabel.BackgroundTransparency = 1
 NotificationLabel.TextWrapped = true
 NotificationLabel.TextScaled = false
@@ -278,18 +339,81 @@ NotificationTextStroke.Parent = NotificationLabel
 NotificationTextStroke.Color = Color3.fromRGB(0, 0, 0)
 NotificationTextStroke.Thickness = 2
 
--- Main Frame (FIXED SIZE - NOT TOO BIG)
+-- Group Warning Frame Setup (SCALE-BASED)
+GroupWarningFrame.Name = "GroupWarningFrame"
+GroupWarningFrame.Size = UDim2.new(0.85, 0, 0.4, 0)
+GroupWarningFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+GroupWarningFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+GroupWarningFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+GroupWarningFrame.BorderSizePixel = 0
+GroupWarningFrame.ZIndex = 200
+GroupWarningFrame.Visible = false
+GroupWarningFrame.Parent = GUI
+
+GroupWarningCorner.CornerRadius = UDim.new(0.05, 0)
+GroupWarningCorner.Parent = GroupWarningFrame
+
+GroupWarningStroke.Parent = GroupWarningFrame
+GroupWarningStroke.Color = Color3.fromRGB(255, 50, 50)
+GroupWarningStroke.Thickness = 4
+GroupWarningStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+GroupWarningLabel.Size = UDim2.new(0.9, 0, 0.5, 0)
+GroupWarningLabel.Position = UDim2.new(0.5, 0, 0.25, 0)
+GroupWarningLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+GroupWarningLabel.Text = "You must join Roblox Group (Smokex) to enable Wild Only Mode!\n\nJoin the group then interact with it again."
+GroupWarningLabel.Font = Enum.Font.FredokaOne
+GroupWarningLabel.TextSize = 18
+GroupWarningLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+GroupWarningLabel.BackgroundTransparency = 1
+GroupWarningLabel.TextWrapped = true
+GroupWarningLabel.TextScaled = true
+GroupWarningLabel.TextXAlignment = Enum.TextXAlignment.Center
+GroupWarningLabel.TextYAlignment = Enum.TextYAlignment.Center
+GroupWarningLabel.ZIndex = 201
+GroupWarningLabel.Parent = GroupWarningFrame
+
+GroupWarningLabelStroke.Parent = GroupWarningLabel
+GroupWarningLabelStroke.Color = Color3.fromRGB(0, 0, 0)
+GroupWarningLabelStroke.Thickness = 2
+
+GroupWarningButton.Size = UDim2.new(0.7, 0, 0.18, 0)
+GroupWarningButton.Position = UDim2.new(0.5, 0, 0.7, 0)
+GroupWarningButton.AnchorPoint = Vector2.new(0.5, 0.5)
+GroupWarningButton.Text = "📋 Copy Group Link"
+GroupWarningButton.Font = Enum.Font.FredokaOne
+GroupWarningButton.TextSize = 16
+GroupWarningButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+GroupWarningButton.TextScaled = true
+GroupWarningButton.BackgroundColor3 = Color3.fromRGB(100, 50, 200)
+GroupWarningButton.BorderSizePixel = 0
+GroupWarningButton.AutoButtonColor = false
+GroupWarningButton.ZIndex = 201
+GroupWarningButton.Parent = GroupWarningFrame
+
+GroupWarningButtonCorner.CornerRadius = UDim.new(0.15, 0)
+GroupWarningButtonCorner.Parent = GroupWarningButton
+
+GroupWarningButtonStroke.Parent = GroupWarningButton
+GroupWarningButtonStroke.Color = Color3.fromRGB(150, 100, 255)
+GroupWarningButtonStroke.Thickness = 3
+GroupWarningButtonStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+GroupWarningButtonGradient.Parent = GroupWarningButton
+GroupWarningButtonGradient.Color = ColorSequence.new(Color3.fromRGB(100, 50, 200), Color3.fromRGB(150, 100, 255))
+
+-- Main Frame
 Frame.Name = "TPFrame"
-Frame.Size = UDim2.new(0, 380, 0, 320)
-Frame.Position = UDim2.new(0.5, -190, 0.5, -160)
+Frame.Size = UDim2.new(0, 420, 0, 380)
+Frame.Position = UDim2.new(0.5, -210, 0.5, -190)
 Frame.AnchorPoint = Vector2.new(0.5, 0.5)
 Frame.BorderSizePixel = 0
-Frame.BackgroundTransparency = 0
+Frame.BackgroundTransparency = 0.1
 Frame.Parent = GUI
 
-TitleLabel.Size = UDim2.new(1, -50, 0, 30)
-TitleLabel.Position = UDim2.new(0, 10, 0, 5)
-TitleLabel.Text = "Wild Horse Teleporter"
+TitleLabel.Size = UDim2.new(1, -50, 0, 35)
+TitleLabel.Position = UDim2.new(0, 15, 0, 8)
+TitleLabel.Text = "🍕 • Sulo's Horse Finder"
 TitleLabel.Font = Enum.Font.FredokaOne
 TitleLabel.TextSize = 20
 TitleLabel.TextScaled = false
@@ -298,9 +422,9 @@ TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Parent = Frame
 
 IslandLabel.Name = "IslandLabel"
-IslandLabel.Size = UDim2.new(1, -50, 0, 20)
-IslandLabel.Position = UDim2.new(0, 10, 0, 35)
-IslandLabel.Text = "Island: Searching..."
+IslandLabel.Size = UDim2.new(1, -50, 0, 22)
+IslandLabel.Position = UDim2.new(0, 15, 0, 43)
+IslandLabel.Text = "🌴 • Island: Loading..."
 IslandLabel.Font = Enum.Font.FredokaOne
 IslandLabel.TextSize = 14
 IslandLabel.TextScaled = false
@@ -308,18 +432,18 @@ IslandLabel.BackgroundTransparency = 1
 IslandLabel.TextXAlignment = Enum.TextXAlignment.Left
 IslandLabel.Parent = Frame
 
-CloseButton.Size = UDim2.new(0, 35, 0, 35)
-CloseButton.Position = UDim2.new(1, -40, 0, 5)
+CloseButton.Size = UDim2.new(0, 40, 0, 40)
+CloseButton.Position = UDim2.new(1, -48, 0, 8)
 CloseButton.Text = "X"
 CloseButton.Font = Enum.Font.FredokaOne
-CloseButton.TextSize = 20
+CloseButton.TextSize = 22
 CloseButton.TextScaled = false
 CloseButton.AutoButtonColor = false
 CloseButton.BorderSizePixel = 0
 CloseButton.Parent = Frame
 
-StatusLabel.Size = UDim2.new(1, -20, 0, 60)
-StatusLabel.Position = UDim2.new(0, 10, 0, 60)
+StatusLabel.Size = UDim2.new(1, -30, 0, 65)
+StatusLabel.Position = UDim2.new(0, 15, 0, 70)
 StatusLabel.Font = Enum.Font.FredokaOne
 StatusLabel.TextSize = 15
 StatusLabel.TextScaled = false
@@ -329,81 +453,138 @@ StatusLabel.BackgroundTransparency = 1
 StatusLabel.Parent = Frame
 
 WarningLabel.Name = "WarningLabel"
-WarningLabel.Size = UDim2.new(1, -20, 0, 30)
-WarningLabel.Position = UDim2.new(0, 10, 0, 130)
+WarningLabel.Size = UDim2.new(1, -30, 0, 35)
+WarningLabel.Position = UDim2.new(0, 15, 0, 145)
 WarningLabel.Text = "..."
 WarningLabel.Font = Enum.Font.FredokaOne
 WarningLabel.TextSize = 16
 WarningLabel.TextScaled = false
-WarningLabel.TextColor3 = THEMES.Discord.WarningText
-WarningLabel.BackgroundColor3 = THEMES.Discord.WarningBG_Other
+WarningLabel.TextColor3 = THEMES.Cyberpunk.WarningText
+WarningLabel.BackgroundColor3 = THEMES.Cyberpunk.WarningBG_Other
 WarningLabel.BorderSizePixel = 0
 WarningLabel.Visible = false
 WarningLabel.Parent = Frame
-WarningCorner.CornerRadius = UDim.new(0, 8)
+WarningCorner.CornerRadius = UDim.new(0, 12)
 
-ControlsLabel.Size = UDim2.new(1, -20, 0, 45)
-ControlsLabel.Position = UDim2.new(0, 10, 0, 170)
-ControlsLabel.Text = "Controls:\nZ = Teleport  |  X = Search  |  C = Theme  |  V = Support"
+ControlsLabel.Size = UDim2.new(1, -30, 0, 60)
+ControlsLabel.Position = UDim2.new(0, 15, 0, 190)
+ControlsLabel.Text = "CONTROLS:\nZ = Teleport  |  X = Search  |  C = Theme\nV = Support  |  B = Wild Only Mode"
 ControlsLabel.Font = Enum.Font.FredokaOne
-ControlsLabel.TextSize = 12
-ControlsLabel.TextScaled = false
+ControlsLabel.TextSize = 11
+ControlsLabel.TextScaled = true
 ControlsLabel.TextWrapped = true
 ControlsLabel.TextYAlignment = Enum.TextYAlignment.Top
 ControlsLabel.BackgroundTransparency = 1
 ControlsLabel.Parent = Frame
 
--- Buttons (FIXED SIZE)
-TeleportButton.Size = UDim2.new(0, 65, 0, 40)
-TeleportButton.Position = UDim2.new(0, 10, 0, 265)
-TeleportButton.Text = "TP"
+-- First Row of Buttons
+TeleportButton.Size = UDim2.new(0, 75, 0, 42)
+TeleportButton.Position = UDim2.new(0, 15, 0, 280)
+TeleportButton.Text = "Z • TELEPORT"
 TeleportButton.Font = Enum.Font.FredokaOne
-TeleportButton.TextSize = 18
-TeleportButton.TextScaled = false
+TeleportButton.TextSize = 17
+TeleportButton.TextScaled = true
 TeleportButton.AutoButtonColor = false
 TeleportButton.BorderSizePixel = 0
 TeleportButton.Parent = Frame
 
-RefreshButton.Size = UDim2.new(0, 65, 0, 40)
-RefreshButton.Position = UDim2.new(0, 85, 0, 265)
-RefreshButton.Text = "Search"
+RefreshButton.Size = UDim2.new(0, 75, 0, 42)
+RefreshButton.Position = UDim2.new(0, 100, 0, 280)
+RefreshButton.Text = "X • Search"
 RefreshButton.Font = Enum.Font.FredokaOne
-RefreshButton.TextSize = 16
-RefreshButton.TextScaled = false
+RefreshButton.TextSize = 20
+RefreshButton.TextScaled = true
 RefreshButton.AutoButtonColor = false
 RefreshButton.BorderSizePixel = 0
 RefreshButton.Parent = Frame
 
-ThemeButton.Size = UDim2.new(0, 65, 0, 40)
-ThemeButton.Position = UDim2.new(0, 160, 0, 265)
-ThemeButton.Text = "Theme"
+ThemeButton.Size = UDim2.new(0, 75, 0, 42)
+ThemeButton.Position = UDim2.new(0, 185, 0, 280)
+ThemeButton.Text = "C • THEME"
 ThemeButton.Font = Enum.Font.FredokaOne
-ThemeButton.TextSize = 16
-ThemeButton.TextScaled = false
+ThemeButton.TextSize = 20
+ThemeButton.TextScaled = true
 ThemeButton.AutoButtonColor = false
 ThemeButton.BorderSizePixel = 0
 ThemeButton.Parent = Frame
 
-SupportButton.Size = UDim2.new(0, 75, 0, 40)
-SupportButton.Position = UDim2.new(0, 235, 0, 265)
-SupportButton.Text = "Support"
+SupportButton.Size = UDim2.new(0, 75, 0, 42)
+SupportButton.Position = UDim2.new(0, 270, 0, 280)
+SupportButton.Text = "Support Mode"
 SupportButton.Font = Enum.Font.FredokaOne
-SupportButton.TextSize = 16
-SupportButton.TextScaled = false
+SupportButton.TextSize = 20
+SupportButton.TextScaled = true
 SupportButton.AutoButtonColor = false
 SupportButton.BorderSizePixel = 0
 SupportButton.Parent = Frame
 
+-- Second Row - Wild Only Button
+WildOnlyButton.Size = UDim2.new(0, 330, 0, 42)
+WildOnlyButton.Position = UDim2.new(0, 15, 0, 330)
+WildOnlyButton.Text = "WILD ONLY MODE: OFF"
+WildOnlyButton.Font = Enum.Font.FredokaOne
+WildOnlyButton.TextSize = 16
+WildOnlyButton.TextScaled = false
+WildOnlyButton.AutoButtonColor = false
+WildOnlyButton.BorderSizePixel = 0
+WildOnlyButton.Parent = Frame
+
 GUI.Enabled = false
 
--- Notification Function (FIXED - NO SPAM)
+-- Check if player is in group
+local function isInGroup()
+	local success, result = pcall(function()
+		return Player:IsInGroup(10612101)
+	end)
+	return success and result
+end
+
+-- Check if player has premium perks (gamepass OR rank 6+)
+local function hasPremiumPerks()
+	local function ownsShirt()
+		local success, result = pcall(function()
+			local MarketplaceService = game:GetService("MarketplaceService")
+			local shirtId = 132268448125497
+			return MarketplaceService:PlayerOwnsAsset(Player, shirtId)
+		end)
+		return success and result
+	end
+	
+	local function isWhitelisted()
+		local success, result = pcall(function()
+			local GroupService = game:GetService("GroupService")
+			local groupId = 10612101
+			local groups = GroupService:GetGroupsAsync(Player.UserId)
+			
+			for _, group in ipairs(groups) do
+				if group.Id == groupId and group.Rank >= 6 then
+					return true
+				end
+			end
+			return false
+		end)
+		return success and result
+	end
+	
+	return ownsShirt() or isWhitelisted()
+end
+
+-- Notification Function
 local notificationQueue = {}
 local isShowingNotification = false
 
 local function showNotification(message, duration)
 	table.insert(notificationQueue, {msg = message, dur = duration or 3})
 	
-	if isShowingNotification then return end
+	if isShowingNotification then 
+		task.spawn(function()
+			task.wait(0.5)
+			NotificationFrame.Visible = false
+			isShowingNotification = false
+			processQueue()
+		end)
+		return 
+	end
 	
 	local function processQueue()
 		if #notificationQueue == 0 then
@@ -418,15 +599,15 @@ local function showNotification(message, duration)
 		NotificationFrame.Visible = true
 		NotificationFrame.Position = UDim2.new(1, 0, 0, 20)
 		
-		local slideIn = TweenService:Create(NotificationFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Position = UDim2.new(1, -320, 0, 20)
+		local slideIn = TweenService:Create(NotificationFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Position = UDim2.new(1, -340, 0, 20)
 		})
 		slideIn:Play()
 		slideIn.Completed:Wait()
 		
 		task.wait(notif.dur)
 		
-		local slideOut = TweenService:Create(NotificationFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		local slideOut = TweenService:Create(NotificationFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
 			Position = UDim2.new(1, 0, 0, 20)
 		})
 		slideOut:Play()
@@ -441,35 +622,35 @@ end
 
 -- Gradient Animation
 local function animateGradient(gradient)
-	local tween = TweenService:Create(gradient, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true), {
+	local tween = TweenService:Create(gradient, TweenInfo.new(1.2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true), {
 		Offset = Vector2.new(1, 0)
 	})
 	tween:Play()
 	return tween
 end
 
--- Button Hover Effect (SMOOTH) - FIXED FOR OFFSET SIZES
+-- Button Hover Effect
 local function setupButtonEffects(button, hoverStroke)
 	local originalSize = button.Size
-	local hoverSize = UDim2.new(originalSize.X.Scale, originalSize.X.Offset + 8, originalSize.Y.Scale, originalSize.Y.Offset + 6)
+	local hoverSize = UDim2.new(originalSize.X.Scale, originalSize.X.Offset + 10, originalSize.Y.Scale, originalSize.Y.Offset + 8)
 	
 	button.MouseEnter:Connect(function()
-		TweenService:Create(button, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = hoverSize}):Play()
-		TweenService:Create(hoverStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {Transparency = 0}):Play()
+		TweenService:Create(button, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = hoverSize}):Play()
+		TweenService:Create(hoverStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {Transparency = 0}):Play()
 	end)
 	
 	button.MouseLeave:Connect(function()
-		TweenService:Create(button, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = originalSize}):Play()
-		TweenService:Create(hoverStroke, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {Transparency = 1}):Play()
+		TweenService:Create(button, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = originalSize}):Play()
+		TweenService:Create(hoverStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {Transparency = 1}):Play()
 	end)
 	
 	button.MouseButton1Down:Connect(function()
-		local shrinkSize = UDim2.new(originalSize.X.Scale, originalSize.X.Offset - 4, originalSize.Y.Scale, originalSize.Y.Offset - 3)
-		TweenService:Create(button, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Size = shrinkSize}):Play()
+		local shrinkSize = UDim2.new(originalSize.X.Scale, originalSize.X.Offset - 5, originalSize.Y.Scale, originalSize.Y.Offset - 4)
+		TweenService:Create(button, TweenInfo.new(0.08, Enum.EasingStyle.Quad), {Size = shrinkSize}):Play()
 	end)
 	
 	button.MouseButton1Up:Connect(function()
-		TweenService:Create(button, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = originalSize}):Play()
+		TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = originalSize}):Play()
 	end)
 end
 
@@ -481,6 +662,7 @@ local function applyTheme(themeName)
 	FrameCorner.CornerRadius = theme.CornerRadius
 	FrameStroke.Color = theme.StrokeColor
 	FrameStroke.Thickness = theme.StrokeThickness
+	FrameGlow.Color = theme.FrameGlow
 
 	TitleLabel.TextColor3 = theme.TextPrimary
 	StatusLabel.TextColor3 = theme.TextPrimary
@@ -491,42 +673,75 @@ local function applyTheme(themeName)
 	WarningStroke.Color = theme.StrokeColor
 	WarningStroke.Thickness = theme.StrokeThickness
 
-	-- Button Gradients
 	TeleportGradient.Color = ColorSequence.new(theme.ButtonTP[1], theme.ButtonTP[2])
 	RefreshGradient.Color = ColorSequence.new(theme.ButtonRefresh[1], theme.ButtonRefresh[2])
 	ThemeGradient.Color = ColorSequence.new(theme.ButtonTheme[1], theme.ButtonTheme[2])
 	SupportGradient.Color = ColorSequence.new(theme.ButtonSupport[1], theme.ButtonSupport[2])
+	WildOnlyGradient.Color = ColorSequence.new(theme.ButtonWildOnly[1], theme.ButtonWildOnly[2])
 	CloseGradient.Color = ColorSequence.new(theme.ButtonClose[1], theme.ButtonClose[2])
 
 	TeleportButton.TextColor3 = theme.TextPrimary
 	RefreshButton.TextColor3 = theme.TextPrimary
 	ThemeButton.TextColor3 = theme.TextPrimary
 	SupportButton.TextColor3 = theme.TextPrimary
+	WildOnlyButton.TextColor3 = theme.TextPrimary
 	CloseButton.TextColor3 = theme.TextPrimary
 
 	TeleportCorner.CornerRadius = theme.ButtonCorner
 	RefreshCorner.CornerRadius = theme.ButtonCorner
 	ThemeCorner.CornerRadius = theme.ButtonCorner
 	SupportCorner.CornerRadius = theme.ButtonCorner
+	WildOnlyCorner.CornerRadius = theme.ButtonCorner
 	CloseCorner.CornerRadius = theme.ButtonCorner
 
 	TeleportHoverStroke.Color = theme.StrokeColor
 	RefreshHoverStroke.Color = theme.StrokeColor
 	ThemeHoverStroke.Color = theme.StrokeColor
 	SupportHoverStroke.Color = theme.StrokeColor
+	WildOnlyHoverStroke.Color = theme.StrokeColor
 	CloseHoverStroke.Color = theme.StrokeColor
 
 	NotificationFrame.BackgroundColor3 = theme.NotifBG
 	NotificationLabel.TextColor3 = theme.NotifText
+	NotificationStroke.Color = theme.StrokeColor
 
 	currentTheme = themeName
 end
 
 local validModels = {}
+local filteredModels = {}
 local currentModelIndex = 1
 local autoUpdateEnabled = true
 local lastUpdateTime = 0
 local UPDATE_INTERVAL = 3
+
+-- Check for wild horse
+local function isWildHorse(model)
+	if not model or not model:IsDescendantOf(workspace) then
+		return false
+	end
+	
+	for _, element in ipairs(model:GetDescendants()) do
+		if element.Name == "CaptureProgress" then
+			return true
+		end
+	end
+	
+	for _, descendant in ipairs(model:GetDescendants()) do
+		if descendant:IsA("BillboardGui") then
+			for _, textElement in ipairs(descendant:GetDescendants()) do
+				if textElement:IsA("TextLabel") and textElement.Text then
+					local text = textElement.Text
+					if text:match("Wild") or text:match("wild") or text:match("WILD") then
+						return true
+					end
+				end
+			end
+		end
+	end
+	
+	return false
+end
 
 local function findValidModels()
 	local islandsFolder = workspace:FindFirstChild("Islands")
@@ -570,20 +785,13 @@ local function findValidModels()
 			and descendant.Name:match("^%b{}$") then
 
 			local rootPart = descendant:FindFirstChild("HumanoidRootPart")
-			local hasCaptureProgress = false
-			
-			for _, element in ipairs(descendant:GetDescendants()) do
-				if element.Name == "CaptureProgress" then
-					hasCaptureProgress = true
-					break
-				end
-			end
+			local isWild = isWildHorse(descendant)
 
 			local highlight = Instance.new("Highlight")
 			highlight.Name = "TeleportHighlight"
-			highlight.FillColor = hasCaptureProgress and currentThemeColors.WarningBG_Wild or currentThemeColors.ButtonTP[1]
+			highlight.FillColor = isWild and currentThemeColors.WarningBG_Wild or currentThemeColors.ButtonTP[1]
 			highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-			highlight.FillTransparency = 0.5
+			highlight.FillTransparency = 0.7
 			highlight.OutlineTransparency = 0
 			highlight.Adornee = descendant
 			highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
@@ -592,7 +800,7 @@ local function findValidModels()
 			local horseData = {
 				Model = descendant,
 				RootPart = rootPart,
-				IsWild = hasCaptureProgress
+				IsWild = isWild
 			}
 
 			if horseData.IsWild then
@@ -610,7 +818,6 @@ local function findValidModels()
 		return a.Model.Name < b.Model.Name
 	end)
 
-	-- Combine lists - wild horses first
 	local allHorses = {}
 	for _, horse in ipairs(wildHorses) do
 		table.insert(allHorses, horse)
@@ -622,24 +829,45 @@ local function findValidModels()
 	return allHorses, islandName
 end
 
+local function applyWildOnlyFilter()
+	filteredModels = {}
+	if wildOnlyMode then
+		for _, horse in ipairs(validModels) do
+			if horse.Model and horse.Model:IsDescendantOf(workspace) then
+				horse.IsWild = isWildHorse(horse.Model)
+				if horse.IsWild then
+					table.insert(filteredModels, horse)
+				end
+			end
+		end
+		return filteredModels
+	else
+		return validModels
+	end
+end
+
+local function getCurrentList()
+	return wildOnlyMode and filteredModels or validModels
+end
+
 local function checkCurrentModelStatus()
-	if GUI.Enabled == false or #validModels == 0 or currentModelIndex > #validModels then
+	local workingList = getCurrentList()
+	
+	if GUI.Enabled == false or #workingList == 0 or currentModelIndex > #workingList then
 		WarningLabel.Visible = false
 		return
 	end
 
 	local theme = THEMES[currentTheme]
-	local modelInfo = validModels[currentModelIndex]
+	local modelInfo = workingList[currentModelIndex]
 	local currentModel = modelInfo.Model
 
-	local isWildNow = false
-	for _, element in ipairs(currentModel:GetDescendants()) do
-		if element.Name == "CaptureProgress" then
-			isWildNow = true
-			break
-		end
+	if not currentModel or not currentModel:IsDescendantOf(workspace) then
+		WarningLabel.Visible = false
+		return
 	end
 
+	local isWildNow = isWildHorse(currentModel)
 	modelInfo.IsWild = isWildNow
 
 	if isWildNow then
@@ -654,8 +882,13 @@ local function checkCurrentModelStatus()
 end
 
 local function autoUpdateWildHorses()
-	if not autoUpdateEnabled or GUI.Enabled == false or #validModels == 0 then 
+	if not autoUpdateEnabled or GUI.Enabled == false then 
 		return 
+	end
+	
+	local workingList = getCurrentList()
+	if #workingList == 0 then
+		return
 	end
 
 	local currentTime = tick()
@@ -666,13 +899,15 @@ local function autoUpdateWildHorses()
 	
 	lastUpdateTime = currentTime
 	
-	if currentModelIndex <= #validModels then
-		local currentHorse = validModels[currentModelIndex]
+	if currentModelIndex <= #workingList then
+		local currentHorse = workingList[currentModelIndex]
 		if currentHorse and currentHorse.IsWild then
 			local oldIndex = currentModelIndex
 			validModels, _ = findValidModels()
+			applyWildOnlyFilter()
 			
-			if oldIndex <= #validModels then
+			workingList = getCurrentList()
+			if oldIndex <= #workingList then
 				currentModelIndex = oldIndex
 			else
 				currentModelIndex = 1
@@ -684,19 +919,25 @@ local function autoUpdateWildHorses()
 end
 
 function updateGUIStatus()
-	if #validModels == 0 then
-		StatusLabel.Text = "No horses found!\nTry refreshing."
+	local workingList = getCurrentList()
+	
+	if #workingList == 0 then
+		if wildOnlyMode then
+			StatusLabel.Text = "No WILD horses found!\nDisable Wild Only or refresh."
+		else
+			StatusLabel.Text = "No horses found!\nTry refreshing."
+		end
 		WarningLabel.Visible = false
 		return
 	end
 
-	local modelInfo = validModels[currentModelIndex]
+	local modelInfo = workingList[currentModelIndex]
 	local pos = modelInfo.RootPart.Position
 	local wildStatus = modelInfo.IsWild and "WILD" or "TAMED"
 
 	StatusLabel.Text = string.format("Horse %d of %d (%s)\n%s\nPos: %.1f, %.1f, %.1f",
 		currentModelIndex,
-		#validModels,
+		#workingList,
 		wildStatus,
 		modelInfo.Model.Name,
 		pos.X, pos.Y, pos.Z)
@@ -705,54 +946,138 @@ function updateGUIStatus()
 end
 
 local function toggleTheme()
-	if currentTheme == "Discord" then
-		applyTheme("Western")
-		showNotification("🎨 Theme: Western", 2)
-	else
-		applyTheme("Discord")
-		showNotification("🎨 Theme: Discord", 2)
-	end
+	local themes = {"Cyberpunk", "Galaxy", "Neon"}
+	local currentIndex = table.find(themes, currentTheme)
+	local nextIndex = (currentIndex % #themes) + 1
+	
+	applyTheme(themes[nextIndex])
+	showNotification("Theme: " .. themes[nextIndex], 2)
 	checkCurrentModelStatus()
 end
 
--- Support Function with Shirt Ownership Check + Hidden Whitelist
-local function toggleSupport()
-	local function ownsShirt()
-		local success, result = pcall(function()
-			local MarketplaceService = game:GetService("MarketplaceService")
-			local shirtId = 132268448125497
-			return MarketplaceService:PlayerOwnsAsset(Player, shirtId)
-		end)
-		return success and result
+local function toggleWildOnly()
+	-- Check if player is in group
+	if not isInGroup() then
+		GroupWarningFrame.Visible = true
+		return
 	end
 	
-	local function isWhitelisted()
-		local success, result = pcall(function()
-			local GroupService = game:GetService("GroupService")
-			local groupId = 10612101
-			local groups = GroupService:GetGroupsAsync(Player.UserId)
-			
-			for _, group in ipairs(groups) do
-				if group.Id == groupId and group.Rank >= 6 then
-					return true
-				end
-			end
-			return false
-		end)
-		return success and result
-	end
+	wildOnlyMode = not wildOnlyMode
 	
-	-- Check whitelist first (hidden), then shirt ownership
-	if not (isWhitelisted() or ownsShirt()) then
-		showNotification("❌ You need to OWN the PREMIUM Support shirt!", 3)
+	if wildOnlyMode then
+		showNotification("Wild Only Mode: ENABLED\nScanning for wild horses...", 2)
+		task.wait(0.5)
 		
-		-- Copy shirt link to clipboard
+		validModels, _ = findValidModels()
+		
+		for _, horse in ipairs(validModels) do
+			if horse.Model and horse.Model:IsDescendantOf(workspace) then
+				horse.IsWild = isWildHorse(horse.Model)
+			end
+		end
+		
+		applyWildOnlyFilter()
+		WildOnlyButton.Text = "WILD ONLY MODE: ON"
+		
+		local workingList = getCurrentList()
+		showNotification(string.format("Found %d wild horses!", #workingList), 3)
+	else
+		WildOnlyButton.Text = "WILD ONLY MODE: OFF"
+		showNotification("Wild Only Mode: DISABLED\nAll horses will be shown!", 2)
+	end
+	
+	currentModelIndex = 1
+	updateGUIStatus()
+end
+
+-- Create support billboard with animated image
+local function createSupportBillboard()
+	if supportBillboard then
+		supportBillboard:Destroy()
+	end
+	
+	if not Character or not Character:FindFirstChild("Head") then
+		return
+	end
+	
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "SupportBillboard"
+	billboard.Adornee = Character.Head
+	billboard.Size = UDim2.new(2, 0, 2, 0)
+	billboard.StudsOffset = Vector3.new(0, 2, 0)
+	billboard.AlwaysOnTop = true
+	billboard.Parent = Character.Head
+	
+	local imageLabel = Instance.new("ImageLabel")
+	imageLabel.Name = "SupportImage"
+	imageLabel.Size = UDim2.new(1, 0, 1, 0)
+	imageLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+	imageLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	imageLabel.BackgroundTransparency = 1
+	imageLabel.Image = "rbxassetid://105713283338760"
+	imageLabel.ScaleType = Enum.ScaleType.Fit
+	imageLabel.Parent = billboard
+	
+	supportBillboard = billboard
+	
+	-- Animate up and down movement
+	task.spawn(function()
+		while supportBillboard and supportBillboard.Parent do
+			local upTween = TweenService:Create(billboard, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+				StudsOffset = Vector3.new(0, 4.5, 0)
+			})
+			upTween:Play()
+			upTween.Completed:Wait()
+			
+			if not supportBillboard or not supportBillboard.Parent then break end
+			
+			local downTween = TweenService:Create(billboard, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+				StudsOffset = Vector3.new(0, 3.7, 0)
+			})
+			downTween:Play()
+			downTween.Completed:Wait()
+		end
+	end)
+	
+	-- Animate spin every 3 seconds with overshoot
+	task.spawn(function()
+		while supportBillboard and supportBillboard.Parent do
+			task.wait(3)
+			
+			if not supportBillboard or not supportBillboard.Parent then break end
+			
+			-- Spin to 370 degrees (overshoot)
+			local spinTween = TweenService:Create(imageLabel, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Rotation = 370
+			})
+			spinTween:Play()
+			spinTween.Completed:Wait()
+			
+			if not supportBillboard or not supportBillboard.Parent then break end
+			
+			-- Bounce back to 360 (0 degrees)
+			local bounceTween = TweenService:Create(imageLabel, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+				Rotation = 360
+			})
+			bounceTween:Play()
+			bounceTween.Completed:Wait()
+			
+			-- Reset rotation to 0 for next cycle
+			imageLabel.Rotation = 0
+		end
+	end)
+end
+
+local function toggleSupport()
+	if not hasPremiumPerks() then
+		showNotification("You need to OWN the PREMIUM Support shirt!", 3)
+		
 		local shirtLink = "https://www.roblox.com/catalog/132268448125497/PREMIUM-Support"
 		if setclipboard then
 			setclipboard(shirtLink)
-			showNotification("📋 Shirt link copied to clipboard!\nPaste in browser to purchase!", 4)
+			showNotification("Shirt link copied to clipboard!\nPaste in browser to purchase!", 4)
 		else
-			showNotification("🛒 Link: roblox.com/catalog/132268448125497", 4)
+			showNotification("Link: roblox.com/catalog/132268448125497", 4)
 		end
 		return
 	end
@@ -760,7 +1085,6 @@ local function toggleSupport()
 	supportActive = not supportActive
 	
 	if supportActive then
-		-- Enable 20 walkspeed loop
 		if walkspeedLoop then
 			walkspeedLoop:Disconnect()
 		end
@@ -770,7 +1094,6 @@ local function toggleSupport()
 			end
 		end)
 		
-		-- Create highlight with smooth color animation
 		if Character then
 			if supportHighlight then
 				supportHighlight:Destroy()
@@ -778,7 +1101,7 @@ local function toggleSupport()
 			
 			supportHighlight = Instance.new("Highlight")
 			supportHighlight.Name = "SupportHighlight"
-			supportHighlight.FillColor = Color3.fromRGB(0, 150, 255) -- Start with blue
+			supportHighlight.FillColor = Color3.fromRGB(255, 0, 0)
 			supportHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
 			supportHighlight.FillTransparency = 0.4
 			supportHighlight.OutlineTransparency = 0
@@ -786,20 +1109,20 @@ local function toggleSupport()
 			supportHighlight.Adornee = Character
 			supportHighlight.Parent = Character
 			
-			-- Smooth color animation between blue and white
 			task.spawn(function()
 				local colorTween = TweenService:Create(supportHighlight, 
 					TweenInfo.new(2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), 
-					{FillColor = Color3.fromRGB(255, 255, 255)}
+					{FillColor = Color3.fromRGB(255, 100, 100)}
 				)
 				colorTween:Play()
 			end)
+			
+			createSupportBillboard()
 		end
 		
-		SupportButton.Text = "ON"
-		showNotification("✅ Support Mode: ACTIVE\n20 Walkspeed + Highlight!", 3)
+		SupportButton.Text = "V • ON"
+		showNotification("Support Mode: ACTIVE\n35.7 Walkspeed + Effects!", 3)
 	else
-		-- Disable support mode
 		if walkspeedLoop then
 			walkspeedLoop:Disconnect()
 			walkspeedLoop = nil
@@ -810,30 +1133,41 @@ local function toggleSupport()
 			supportHighlight = nil
 		end
 		
-		if Character and Humanoid then
-			Humanoid.WalkSpeed = 16 -- Reset to default
+		if supportBillboard then
+			supportBillboard:Destroy()
+			supportBillboard = nil
 		end
 		
-		SupportButton.Text = "Support"
-		showNotification("❌ Support Mode: DISABLED", 2)
+		if Character and Humanoid then
+			Humanoid.WalkSpeed = 16
+		end
+		
+		SupportButton.Text = "Support Mode"
+		showNotification("Support Mode: DISABLED", 2)
 	end
 end
 
 function teleportToNextModel()
-	if GUI.Enabled == false or #validModels == 0 then 
-		showNotification("❌ No horses available!", 2)
+	local workingList = getCurrentList()
+	
+	if GUI.Enabled == false or #workingList == 0 then 
+		if wildOnlyMode and #validModels > 0 then
+			showNotification("No wild horses! Disable Wild Only mode.", 3)
+		else
+			showNotification("No horses available!", 2)
+		end
 		return 
 	end
 
 	currentModelIndex += 1
-	if currentModelIndex > #validModels then
+	if currentModelIndex > #workingList then
 		currentModelIndex = 1
 	end
 
-	local target = validModels[currentModelIndex]
+	local target = workingList[currentModelIndex]
 	if target and target.Model and target.RootPart and Character then
 		Character:PivotTo(CFrame.new(target.RootPart.Position + Vector3.new(0, 3, 0)))
-		showNotification(string.format("✅ Teleported to horse %d/%d", currentModelIndex, #validModels), 2)
+		showNotification(string.format("Teleported to horse %d/%d", currentModelIndex, #workingList), 2)
 		updateGUIStatus()
 	end
 end
@@ -843,15 +1177,15 @@ local function refreshHorseList()
 	if GUI.Enabled == false then return end
 
 	validModels, islandName = findValidModels()
+	applyWildOnlyFilter()
 	currentModelIndex = 1
 
 	if islandName and islandName:sub(1, 5) == "Error" then
-		IslandLabel.Text = "Island: Failed to identify"
+		IslandLabel.Text = "🌴• Island: Failed to identify"
 	else
-		IslandLabel.Text = "Island: " .. (islandName or "Unknown")
+		IslandLabel.Text = "🌴• Island: " .. (islandName or "Unknown")
 	end
 
-	-- Count wild vs tamed
 	local wildCount = 0
 	for _, horse in ipairs(validModels) do
 		if horse.IsWild then
@@ -859,7 +1193,7 @@ local function refreshHorseList()
 		end
 	end
 	
-	showNotification(string.format("🔍 Found %d horses (%d wild, %d tamed)", #validModels, wildCount, #validModels - wildCount), 3)
+	showNotification(string.format("Found %d horses (%d wild, %d tamed)", #validModels, wildCount, #validModels - wildCount), 3)
 	updateGUIStatus()
 end
 
@@ -868,7 +1202,6 @@ local function cleanup()
 		GUI.Enabled = false
 	end
 
-	-- Disable support mode
 	if walkspeedLoop then
 		walkspeedLoop:Disconnect()
 		walkspeedLoop = nil
@@ -877,6 +1210,11 @@ local function cleanup()
 	if supportHighlight then
 		supportHighlight:Destroy()
 		supportHighlight = nil
+	end
+	
+	if supportBillboard then
+		supportBillboard:Destroy()
+		supportBillboard = nil
 	end
 
 	for _, conn in pairs(connections) do
@@ -897,10 +1235,39 @@ local function cleanup()
 	end
 end
 
+-- Group Warning Button Click
+GroupWarningButton.MouseButton1Click:Connect(function()
+	local groupLink = "https://www.roblox.com/communities/10612101/Smokex#!/about"
+	
+	if setclipboard then
+		setclipboard(groupLink)
+		showNotification("Group link copied to clipboard!", 2)
+	else
+		showNotification("Link: roblox.com/communities/10612101/Smokex", 3)
+	end
+	
+	GroupWarningFrame.Visible = false
+end)
+
+-- Close warning frame when clicking outside
+GroupWarningFrame.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		local mousePos = UIS:GetMouseLocation()
+		local framePos = GroupWarningFrame.AbsolutePosition
+		local frameSize = GroupWarningFrame.AbsoluteSize
+		
+		if mousePos.X < framePos.X or mousePos.X > framePos.X + frameSize.X or
+		   mousePos.Y < framePos.Y or mousePos.Y > framePos.Y + frameSize.Y then
+			GroupWarningFrame.Visible = false
+		end
+	end
+end)
+
 safeConnect(TeleportButton.MouseButton1Click, teleportToNextModel)
 safeConnect(RefreshButton.MouseButton1Click, refreshHorseList)
 safeConnect(ThemeButton.MouseButton1Click, toggleTheme)
 safeConnect(SupportButton.MouseButton1Click, toggleSupport)
+safeConnect(WildOnlyButton.MouseButton1Click, toggleWildOnly)
 safeConnect(CloseButton.MouseButton1Click, cleanup)
 
 safeConnect(UIS.InputBegan, function(input, gameProcessed)
@@ -914,6 +1281,8 @@ safeConnect(UIS.InputBegan, function(input, gameProcessed)
 		toggleTheme()
 	elseif input.KeyCode == Enum.KeyCode.V then
 		toggleSupport()
+	elseif input.KeyCode == Enum.KeyCode.B then
+		toggleWildOnly()
 	end
 end)
 
@@ -950,37 +1319,33 @@ if not Character then
 	Character = Player.Character
 end
 
--- Setup button effects
 setupButtonEffects(TeleportButton, TeleportHoverStroke)
 setupButtonEffects(RefreshButton, RefreshHoverStroke)
 setupButtonEffects(ThemeButton, ThemeHoverStroke)
 setupButtonEffects(SupportButton, SupportHoverStroke)
+setupButtonEffects(WildOnlyButton, WildOnlyHoverStroke)
 setupButtonEffects(CloseButton, CloseHoverStroke)
 
--- Animate gradients
 animateGradient(TeleportGradient)
 animateGradient(RefreshGradient)
 animateGradient(ThemeGradient)
 animateGradient(SupportGradient)
+animateGradient(WildOnlyGradient)
 animateGradient(CloseGradient)
 
--- Loading Screen Animation
 task.spawn(function()
-	-- Fade in welcome text
 	TweenService:Create(WelcomeLabel, TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		TextTransparency = 0
 	}):Play()
 	
 	task.wait(0.3)
 	
-	-- Fade in subtitle
 	TweenService:Create(SubtitleLabel, TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		TextTransparency = 0
 	}):Play()
 	
 	task.wait(2)
 	
-	-- Fade out loading screen
 	local fadeOut = TweenService:Create(LoadingFrame, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
 		BackgroundTransparency = 1
 	})
@@ -998,10 +1363,8 @@ task.spawn(function()
 	
 	LoadingFrame:Destroy()
 	
-	-- Initialize main GUI
 	applyTheme(currentTheme)
 	
-	-- Smooth GUI entrance
 	Frame.BackgroundTransparency = 1
 	TitleLabel.TextTransparency = 1
 	IslandLabel.TextTransparency = 1
@@ -1015,17 +1378,17 @@ task.spawn(function()
 	ThemeButton.TextTransparency = 1
 	SupportButton.BackgroundTransparency = 1
 	SupportButton.TextTransparency = 1
+	WildOnlyButton.BackgroundTransparency = 1
+	WildOnlyButton.TextTransparency = 1
 	CloseButton.BackgroundTransparency = 1
 	CloseButton.TextTransparency = 1
 	
 	GUI.Enabled = true
 	
-	-- Fade in frame background
 	TweenService:Create(Frame, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		BackgroundTransparency = 0
+		BackgroundTransparency = 0.1
 	}):Play()
 	
-	-- Fade in all text elements
 	task.wait(0.2)
 	TweenService:Create(TitleLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		TextTransparency = 0
@@ -1040,8 +1403,7 @@ task.spawn(function()
 		TextTransparency = 0
 	}):Play()
 	
-	-- Fade in buttons with stagger
-	task.wait(0.1)
+	task.wait(0.08)
 	TweenService:Create(TeleportButton, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		BackgroundTransparency = 0
 	}):Play()
@@ -1049,7 +1411,7 @@ task.spawn(function()
 		TextTransparency = 0
 	}):Play()
 	
-	task.wait(0.1)
+	task.wait(0.08)
 	TweenService:Create(RefreshButton, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		BackgroundTransparency = 0
 	}):Play()
@@ -1057,7 +1419,7 @@ task.spawn(function()
 		TextTransparency = 0
 	}):Play()
 	
-	task.wait(0.1)
+	task.wait(0.08)
 	TweenService:Create(ThemeButton, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		BackgroundTransparency = 0
 	}):Play()
@@ -1065,7 +1427,7 @@ task.spawn(function()
 		TextTransparency = 0
 	}):Play()
 	
-	task.wait(0.1)
+	task.wait(0.08)
 	TweenService:Create(SupportButton, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		BackgroundTransparency = 0
 	}):Play()
@@ -1073,7 +1435,15 @@ task.spawn(function()
 		TextTransparency = 0
 	}):Play()
 	
-	task.wait(0.1)
+	task.wait(0.08)
+	TweenService:Create(WildOnlyButton, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		BackgroundTransparency = 0
+	}):Play()
+	TweenService:Create(WildOnlyButton, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		TextTransparency = 0
+	}):Play()
+	
+	task.wait(0.08)
 	TweenService:Create(CloseButton, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		BackgroundTransparency = 0
 	}):Play()
@@ -1083,7 +1453,6 @@ task.spawn(function()
 	
 	task.wait(0.3)
 	
-	-- Start searching for horses
 	refreshHorseList()
-	showNotification("🐴 Welcome to Sulo's Horse Farm!", 3)
+	showNotification("Welcome to Sulo's Horse Farm!", 3)
 end)
