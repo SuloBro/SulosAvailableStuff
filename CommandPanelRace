@@ -1,0 +1,1094 @@
+-- AUTO RACE SCRIPT (COMPLETE WITH FEEDBACK SYSTEM)
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local player = Players.LocalPlayer
+
+-- Settings
+local RACE_NAME = "Race1"
+local SPEED = 150
+local CHECK_DISTANCE = 200
+local WAIT_BETWEEN_CPS = 0.8
+local WEBHOOK_URL = "https://discordapp.com/api/webhooks/1324265546266710056/o9QNbrRXT1sLpBUzMDpYHKomJz87VDiviLwoBSTOARhKUYwto8ozU50rpFs7c488xjo6"
+local PASTEBIN_URL = "https://gist.githubusercontent.com/SuloBro/31685a0970f19bdee36b685daca12472/raw/8844dbf881388fcf4fabbaeb6302b82a7aa7ed4b/feedback.json"
+local PREMIUM_SHIRT_ID = 132268448125497
+local GROUP_ID = 10612101
+local STAFF_RANK = 6
+local OWNER_RANK = 255
+local scriptActive = true
+
+-- State
+local racing = false
+local currentCP = 1
+local carModel = nil
+local carPrimary = nil
+local originalLabelText = ""
+local recentMessages = {}
+
+-- Fetch messages from online source (GitHub Gist or Pastebin)
+local function FetchOnlineMessages()
+	spawn(function()
+		pcall(function()
+			local response = request({
+				Url = PASTEBIN_URL,
+				Method = "GET"
+			})
+			
+			if response.StatusCode == 200 then
+				local data = HttpService:JSONDecode(response.Body)
+				if data and type(data) == "table" then
+					recentMessages = data
+					print("✅ Loaded " .. #recentMessages .. " messages from online storage")
+				end
+			end
+		end)
+	end)
+end
+
+-- Load saved messages from local storage (backup)
+local function LoadMessages()
+	pcall(function()
+		if not isfolder("AutoRaceScript") then
+			makefolder("AutoRaceScript")
+		end
+		
+		if isfile("AutoRaceScript/feedback.json") then
+			local data = readfile("AutoRaceScript/feedback.json")
+			local decoded = HttpService:JSONDecode(data)
+			recentMessages = decoded or {}
+			print("📂 Loaded " .. #recentMessages .. " messages from local storage")
+		end
+	end)
+end
+
+-- Save messages to local storage
+local function SaveMessages()
+	pcall(function()
+		if not isfolder("AutoRaceScript") then
+			makefolder("AutoRaceScript")
+		end
+		
+		local encoded = HttpService:JSONEncode(recentMessages)
+		writefile("AutoRaceScript/feedback.json", encoded)
+		print("💾 Saved " .. #recentMessages .. " messages to local storage")
+	end)
+end
+
+-- Notification
+local function Notify(title, text)
+	pcall(function()
+		game.StarterGui:SetCore("SendNotification", {
+			Title = title;
+			Text = text;
+			Duration = 3;
+		})
+	end)
+end
+
+-- Check player status (Premium/Staff/Owner)
+local function CheckPlayerStatus(userId)
+	local status = {
+		isPremium = false,
+		isStaff = false,
+		isOwner = false,
+		rank = 0
+	}
+	
+	pcall(function()
+		local ownsAsset = game:GetService("MarketplaceService"):PlayerOwnsAsset(Players:GetPlayerByUserId(userId), PREMIUM_SHIRT_ID)
+		if ownsAsset then
+			status.isPremium = true
+		end
+	end)
+	
+	pcall(function()
+		local playerObj = Players:GetPlayerByUserId(userId)
+		if playerObj then
+			local rank = playerObj:GetRankInGroup(GROUP_ID)
+			status.rank = rank
+			
+			if rank == OWNER_RANK then
+				status.isOwner = true
+			elseif rank >= STAFF_RANK then
+				status.isStaff = true
+			end
+		end
+	end)
+	
+	return status
+end
+
+-- Send feedback to Discord
+local function SendFeedback(message)
+	spawn(function()
+		local success, err = pcall(function()
+			local playerName = player.Name
+			local displayName = player.DisplayName
+			local userId = player.UserId
+			local thumbnail = "https://www.roblox.com/headshot-thumbnail/image?userId="..userId.."&width=150&height=150&format=png"
+			
+			local data = {
+				["embeds"] = {{
+					["title"] = "📝 New Feedback",
+					["description"] = message,
+					["color"] = 3447003,
+					["timestamp"] = os.date("!%Y-%m-%dT%H:%M:%S"),
+					["footer"] = {
+						["text"] = "Auto Race Script v2.2"
+					},
+					["author"] = {
+						["name"] = displayName .. " (@" .. playerName .. ")",
+						["icon_url"] = thumbnail
+					},
+					["fields"] = {
+						{["name"] = "User ID", ["value"] = tostring(userId), ["inline"] = true},
+						{["name"] = "Username", ["value"] = "@" .. playerName, ["inline"] = true}
+					}
+				}}
+			}
+			
+			local jsonData = HttpService:JSONEncode(data)
+			
+			local response = request({
+				Url = WEBHOOK_URL,
+				Method = "POST",
+				Headers = {
+					["Content-Type"] = "application/json"
+				},
+				Body = jsonData
+			})
+			
+			if response.StatusCode == 204 or response.StatusCode == 200 then
+				table.insert(recentMessages, 1, {
+					username = playerName,
+					displayName = displayName,
+					userId = userId,
+					message = message,
+					timestamp = os.time(),
+					thumbnail = thumbnail
+				})
+				
+				if #recentMessages > 10 then
+					table.remove(recentMessages, 11)
+				end
+				
+				SaveMessages()
+				
+				Notify("✅ Sent!", "Feedback delivered")
+				return true
+			else
+				Notify("❌ Failed", "Couldn't send feedback")
+				return false
+			end
+		end)
+		
+		if not success then
+			warn("Feedback error: " .. tostring(err))
+			Notify("❌ Error", "Check console (F9)")
+		end
+	end)
+end
+
+-- Get checkpoints folder
+local function GetCPFolder()
+	local races = workspace:FindFirstChild("Races")
+	if not races then return nil end
+	local race = races:FindFirstChild(RACE_NAME)
+	if not race then return nil end
+	return race:FindFirstChild("Checkpoints")
+end
+
+-- Find specific checkpoint by number
+local function FindCP(num)
+	local folder = GetCPFolder()
+	if not folder then return nil end
+	
+	for _, v in pairs(folder:GetChildren()) do
+		if v:IsA("BasePart") then
+			local cpNum = tonumber(v.Name:match("%d+"))
+			if cpNum == num then
+				return v
+			end
+		end
+	end
+	return nil
+end
+
+-- Check distance to checkpoint
+local function IsCloseToCP(checkpoint)
+	if not carPrimary or not carPrimary.Parent then return false end
+	if not checkpoint or not checkpoint.Parent then return false end
+	
+	local distance = (carPrimary.Position - checkpoint.Position).Magnitude
+	return distance <= CHECK_DISTANCE
+end
+
+-- Check if player is in car
+local function InCar()
+	if not player.Character then return false end
+	local hum = player.Character:FindFirstChild("Humanoid")
+	if hum and hum.Sit and hum.SeatPart then
+		return true
+	end
+	return false
+end
+
+-- Get car
+local function GetCar()
+	if not player.Character then return nil end
+	local hum = player.Character:FindFirstChild("Humanoid")
+	if hum and hum.SeatPart then
+		return hum.SeatPart.Parent
+	end
+	return nil
+end
+
+-- Teleport to queue
+local function TPQueue()
+	local success, err = pcall(function()
+		local playerGui = player:FindFirstChild("PlayerGui")
+		if not playerGui then 
+			warn("PlayerGui not found")
+			return 
+		end
+		
+		local mainUI = playerGui:FindFirstChild("Main_User_Interface")
+		if not mainUI then 
+			warn("Main_User_Interface not found")
+			return 
+		end
+		
+		local teleportFrame = mainUI:FindFirstChild("Teleport")
+		if not teleportFrame then 
+			warn("Teleport frame not found")
+			return 
+		end
+		
+		local container1 = teleportFrame:FindFirstChild("Container")
+		if not container1 then 
+			warn("Container 1 not found")
+			return 
+		end
+		
+		local races = container1:FindFirstChild("Races")
+		if not races then 
+			warn("Races not found")
+			return 
+		end
+		
+		local race1 = races:FindFirstChild("Race1")
+		if not race1 then
+			warn("Race1 not found, waiting...")
+			race1 = races:WaitForChild("Race1", 5)
+		end
+		
+		if not race1 then 
+			warn("Race1 still not found after waiting")
+			return 
+		end
+		
+		local container2 = race1:FindFirstChild("Container")
+		if not container2 then 
+			warn("Container 2 not found")
+			return 
+		end
+		
+		local tpButton = container2:FindFirstChild("Teleport")
+		if not tpButton then 
+			warn("Teleport button not found in Container 2")
+			return 
+		end
+		
+		if not tpButton:IsA("ImageButton") then 
+			warn("Teleport is not an ImageButton, it's a " .. tpButton.ClassName)
+			return 
+		end
+		
+		print("Found teleport button! Making visible...")
+		
+		tpButton.Visible = true
+		wait(0.5)
+		
+		print("Attempting to click button...")
+		
+		local clicked = false
+		for i = 1, 3 do
+			pcall(function()
+				for _, connection in pairs(getconnections(tpButton.MouseButton1Click)) do
+					connection:Fire()
+					clicked = true
+				end
+			end)
+			
+			if clicked then
+				print("Button clicked via direct method!")
+				break
+			end
+			wait(0.1)
+		end
+		
+		if not clicked then
+			local VirtualInputManager = game:GetService("VirtualInputManager")
+			local buttonPos = tpButton.AbsolutePosition
+			local buttonSize = tpButton.AbsoluteSize
+			local clickX = buttonPos.X + (buttonSize.X / 2)
+			local clickY = buttonPos.Y + (buttonSize.Y / 2)
+			
+			for i = 1, 2 do
+				VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, true, game, 0)
+				wait(0.1)
+				VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, false, game, 0)
+				wait(0.1)
+			end
+			print("Button clicked via VirtualInput method!")
+		end
+		
+		wait(0.3)
+		Notify("✅ Teleported", "Teleport activated!")
+		
+		spawn(function()
+			wait(3)
+			if tpButton and tpButton.Parent then
+				tpButton.Visible = false
+				print("Button hidden again")
+			end
+		end)
+	end)
+	
+	if not success then
+		warn("Teleport error: " .. tostring(err))
+		Notify("❌ Error", "Check console (F9)")
+	end
+end
+
+-- Stop race
+local function StopRace()
+	racing = false
+	if carPrimary and carPrimary.Parent then
+		carPrimary.Velocity = Vector3.new(0, 0, 0)
+	end
+	carModel = nil
+	carPrimary = nil
+	currentCP = 1
+	Notify("⏹️ Stopped", "Race stopped")
+end
+
+-- Smooth movement to checkpoint - FIXED VERSION
+local function MoveToCP(checkpoint)
+	if not carModel or not carPrimary or not checkpoint then return end
+	
+	-- Get checkpoint CFrame and position
+	local checkpointCFrame = checkpoint.CFrame
+	local checkpointPos = checkpointCFrame.Position
+	
+	-- Try RightVector instead of LookVector (checkpoint might be rotated differently)
+	-- This spawns car using the checkpoint's RIGHT direction going backwards
+	local behindOffset = checkpointCFrame.RightVector * 10
+	local spawnPosition = checkpointPos + behindOffset
+	
+	-- Keep same Y level (don't float)
+	spawnPosition = Vector3.new(spawnPosition.X, checkpointPos.Y, spawnPosition.Z)
+	
+	-- Make car face TOWARD checkpoint
+	local lookAt = CFrame.new(spawnPosition, Vector3.new(checkpointPos.X, spawnPosition.Y, checkpointPos.Z))
+	
+	-- Rotate -90 degrees (opposite direction) so car front faces forward
+	local carRotation = lookAt * CFrame.Angles(0, math.rad(0), 0)
+	
+	-- Reset velocities
+	for _, part in pairs(carModel:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+			part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+		end
+	end
+	
+	-- Teleport car
+	carModel:PivotTo(carRotation)
+	
+	wait(0.1)
+	
+	-- Stop all motion
+	carPrimary.Velocity = Vector3.new(0, 0, 0)
+	carPrimary.RotVelocity = Vector3.new(0, 0, 0)
+end
+
+-- Start race
+local function StartRace()
+	if racing then
+		Notify("⚠️ Already racing", "Stop first")
+		return
+	end
+	
+	if not InCar() then
+		Notify("❌ Error", "Get in a car first!")
+		return
+	end
+	
+	carModel = GetCar()
+	if not carModel then
+		Notify("❌ Error", "Car not found")
+		return
+	end
+	
+	carPrimary = carModel:FindFirstChild("Body") and carModel.Body:FindFirstChild("#Weight")
+	if not carPrimary then
+		carPrimary = carModel.PrimaryPart or carModel:FindFirstChild("VehicleSeat") or carModel:FindFirstChildWhichIsA("BasePart")
+	end
+	
+	if not carPrimary then
+		Notify("❌ Error", "No car primary part")
+		return
+	end
+	
+	carModel.PrimaryPart = carPrimary
+	racing = true
+	
+	Notify("🏎️ Racing!", "Starting race")
+	
+	spawn(function()
+		while racing and scriptActive do
+			if not InCar() then
+				Notify("⚠️ Left car", "Race stopped")
+				StopRace()
+				break
+			end
+			
+			if not carModel or not carModel.Parent or not carPrimary or not carPrimary.Parent then
+				Notify("❌ Car gone", "Race stopped")
+				StopRace()
+				break
+			end
+			
+			local checkpoint = FindCP(currentCP)
+			
+			if checkpoint then
+				if IsCloseToCP(checkpoint) then
+					Notify("🏁 CP " .. currentCP, "Reached!")
+					currentCP = currentCP + 1
+					wait(WAIT_BETWEEN_CPS)
+				else
+					MoveToCP(checkpoint)
+					wait(0.3)
+				end
+			else
+				local waitCount = 0
+				while not FindCP(currentCP) and racing and waitCount < 30 do
+					wait(0.5)
+					waitCount = waitCount + 1
+				end
+				
+				if not FindCP(currentCP) then
+					if currentCP > 1 then
+						Notify("🎉 COMPLETE!", "Race finished!")
+					else
+						Notify("❌ No checkpoints", "Can't find CP 1")
+					end
+					StopRace()
+					break
+				end
+			end
+			
+			wait(0.2)
+		end
+	end)
+end
+
+-- Progress
+local function ShowProgress()
+	local status = racing and "Racing" or "Stopped"
+	Notify("📊 Progress", "CP: " .. currentCP .. " | " .. status)
+end
+
+-- Delete script
+local function DeleteScript()
+	Notify("🗑️ Deleting", "Goodbye!")
+	scriptActive = false
+	StopRace()
+	
+	pcall(function()
+		local playerGui = player:FindFirstChild("PlayerGui")
+		if not playerGui then return end
+		
+		local mainUI = playerGui:FindFirstChild("Main_User_Interface")
+		if not mainUI then return end
+		
+		local teleportFrame = mainUI:FindFirstChild("Teleport")
+		if not teleportFrame then return end
+		
+		local container1 = teleportFrame:FindFirstChild("Container")
+		if not container1 then return end
+		
+		local races = container1:FindFirstChild("Races")
+		if not races then return end
+		
+		local race1 = races:FindFirstChild("Race1")
+		if not race1 then return end
+		
+		local container2 = race1:FindFirstChild("Container")
+		if not container2 then return end
+		
+		local tpButton = container2:FindFirstChild("Teleport")
+		if tpButton and tpButton:IsA("ImageButton") then
+			tpButton.Visible = true
+		end
+		
+		local label = container2:FindFirstChild("Label")
+		if label and label:IsA("TextLabel") then
+			label.Text = originalLabelText
+		end
+	end)
+	
+	if game.CoreGui:FindFirstChild("RaceHelpGUI") then
+		game.CoreGui:FindFirstChild("RaceHelpGUI"):Destroy()
+	end
+	
+	wait(0.5)
+	script:Destroy()
+end
+
+-- Help GUI with Feedback
+local function ShowHelp()
+	if game.CoreGui:FindFirstChild("RaceHelpGUI") then
+		game.CoreGui:FindFirstChild("RaceHelpGUI"):Destroy()
+	end
+	
+	local sg = Instance.new("ScreenGui")
+	sg.Name = "RaceHelpGUI"
+	sg.DisplayOrder = 9999
+	sg.Parent = game.CoreGui
+	
+	local blur = Instance.new("Frame")
+	blur.Size = UDim2.new(1, 0, 1, 0)
+	blur.BackgroundColor3 = Color3.new(0, 0, 0)
+	blur.BackgroundTransparency = 0.3
+	blur.BorderSizePixel = 0
+	blur.Parent = sg
+	
+	local main = Instance.new("Frame")
+	main.Size = UDim2.new(0, 0, 0, 0)
+	main.Position = UDim2.new(0.5, 0, 0.5, 0)
+	main.AnchorPoint = Vector2.new(0.5, 0.5)
+	main.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+	main.BorderSizePixel = 0
+	main.Parent = sg
+	
+	Instance.new("UICorner", main).CornerRadius = UDim.new(0.025, 0)
+	
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = Color3.fromRGB(100, 180, 255)
+	stroke.Thickness = 2
+	stroke.Parent = main
+	
+	TweenService:Create(main, TweenInfo.new(0.5, Enum.EasingStyle.Back), {Size = UDim2.new(0, 540, 0, 720)}):Play()
+	
+	local header = Instance.new("Frame")
+	header.Size = UDim2.new(1, 0, 0, 75)
+	header.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
+	header.BorderSizePixel = 0
+	header.Parent = main
+	
+	Instance.new("UICorner", header).CornerRadius = UDim.new(0.025, 0)
+	
+	local icon = Instance.new("TextLabel")
+	icon.Size = UDim2.new(0, 55, 0, 55)
+	icon.Position = UDim2.new(0, 15, 0, 10)
+	icon.BackgroundTransparency = 1
+	icon.Text = "🏁"
+	icon.TextSize = 36
+	icon.Parent = header
+	
+	local title = Instance.new("TextLabel")
+	title.Size = UDim2.new(0, 300, 0, 32)
+	title.Position = UDim2.new(0, 75, 0, 12)
+	title.BackgroundTransparency = 1
+	title.Text = "COMMAND CENTER"
+	title.TextColor3 = Color3.new(1, 1, 1)
+	title.TextSize = 28
+	title.Font = Enum.Font.GothamBold
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Parent = header
+	
+	local sub = Instance.new("TextLabel")
+	sub.Size = UDim2.new(0, 300, 0, 18)
+	sub.Position = UDim2.new(0, 75, 0, 48)
+	sub.BackgroundTransparency = 1
+	sub.Text = "Auto Race v1.0 (@1sulo - This is free lol)"
+	sub.TextColor3 = Color3.fromRGB(160, 160, 180)
+	sub.TextSize = 15
+	sub.Font = Enum.Font.Gotham
+	sub.TextXAlignment = Enum.TextXAlignment.Left
+	sub.Parent = header
+	
+	local close = Instance.new("TextButton")
+	close.Size = UDim2.new(0, 48, 0, 48)
+	close.Position = UDim2.new(1, -63, 0, 13)
+	close.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+	close.BorderSizePixel = 0
+	close.Text = ""
+	close.Parent = header
+	
+	Instance.new("UICorner", close).CornerRadius = UDim.new(0.18, 0)
+	
+	local x = Instance.new("TextLabel")
+	x.Size = UDim2.new(1, 0, 1, 0)
+	x.BackgroundTransparency = 1
+	x.Text = "×"
+	x.TextColor3 = Color3.fromRGB(255, 90, 90)
+	x.TextSize = 34
+	x.Font = Enum.Font.GothamBold
+	x.Parent = close
+	
+	close.MouseButton1Click:Connect(function()
+		TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(0, 0, 0, 0)}):Play()
+		wait(0.3)
+		sg:Destroy()
+	end)
+	
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Size = UDim2.new(1, -40, 0, 380)
+	scroll.Position = UDim2.new(0, 20, 0, 85)
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.ScrollBarThickness = 5
+	scroll.ScrollBarImageColor3 = Color3.fromRGB(100, 180, 255)
+	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.Parent = main
+	
+	local list = Instance.new("UIListLayout")
+	list.Padding = UDim.new(0, 14)
+	list.Parent = scroll
+	
+	local cmds = {
+		{c = ".start", e = "▶️", d = "Start racing", col = Color3.fromRGB(120, 255, 160)},
+		{c = ".stop", e = "⏹️", d = "Stop the race", col = Color3.fromRGB(255, 210, 120)},
+		{c = ".tp", e = "📍", d = "Teleport to queue", col = Color3.fromRGB(255, 160, 255)},
+		{c = ".progress", e = "📊", d = "Check checkpoint", col = Color3.fromRGB(120, 210, 255)},
+		{c = ".delete", e = "🗑️", d = "Remove script", col = Color3.fromRGB(255, 120, 120)},
+		{c = ".help", e = "❓", d = "Show this menu", col = Color3.fromRGB(210, 210, 120)}
+	}
+	
+	for i, v in ipairs(cmds) do
+		local card = Instance.new("Frame")
+		card.Size = UDim2.new(1, -10, 0, 88)
+		card.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
+		card.BorderSizePixel = 0
+		card.Parent = scroll
+		
+		Instance.new("UICorner", card).CornerRadius = UDim.new(0.09, 0)
+		
+		local emoji = Instance.new("TextLabel")
+		emoji.Size = UDim2.new(0, 52, 0, 52)
+		emoji.Position = UDim2.new(0, 16, 0, 18)
+		emoji.BackgroundTransparency = 1
+		emoji.Text = v.e
+		emoji.TextSize = 30
+		emoji.Parent = card
+		
+		local cmd = Instance.new("TextLabel")
+		cmd.Size = UDim2.new(1, -95, 0, 30)
+		cmd.Position = UDim2.new(0, 78, 0, 13)
+		cmd.BackgroundTransparency = 1
+		cmd.Text = v.c
+		cmd.TextColor3 = v.col
+		cmd.TextSize = 21
+		cmd.Font = Enum.Font.GothamBold
+		cmd.TextXAlignment = Enum.TextXAlignment.Left
+		cmd.Parent = card
+		
+		local desc = Instance.new("TextLabel")
+		desc.Size = UDim2.new(1, -95, 0, 42)
+		desc.Position = UDim2.new(0, 78, 0, 42)
+		desc.BackgroundTransparency = 1
+		desc.Text = v.d
+		desc.TextColor3 = Color3.fromRGB(190, 190, 210)
+		desc.TextSize = 15
+		desc.Font = Enum.Font.Gotham
+		desc.TextWrapped = true
+		desc.TextXAlignment = Enum.TextXAlignment.Left
+		desc.TextYAlignment = Enum.TextYAlignment.Top
+		desc.Parent = card
+	end
+	
+	-- FEEDBACK SECTION
+	local feedbackSection = Instance.new("Frame")
+	feedbackSection.Size = UDim2.new(1, -40, 0, 140)
+	feedbackSection.Position = UDim2.new(0, 20, 0, 475)
+	feedbackSection.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
+	feedbackSection.BorderSizePixel = 0
+	feedbackSection.Parent = main
+	
+	Instance.new("UICorner", feedbackSection).CornerRadius = UDim.new(0.06, 0)
+	
+	local fbTitle = Instance.new("TextLabel")
+	fbTitle.Size = UDim2.new(1, -20, 0, 25)
+	fbTitle.Position = UDim2.new(0, 10, 0, 8)
+	fbTitle.BackgroundTransparency = 1
+	fbTitle.Text = "💬 Send Feedback"
+	fbTitle.TextColor3 = Color3.fromRGB(120, 255, 180)
+	fbTitle.TextSize = 18
+	fbTitle.Font = Enum.Font.GothamBold
+	fbTitle.TextXAlignment = Enum.TextXAlignment.Left
+	fbTitle.Parent = feedbackSection
+	
+	local textboxBg = Instance.new("Frame")
+	textboxBg.Size = UDim2.new(1, -20, 0, 65)
+	textboxBg.Position = UDim2.new(0, 10, 0, 38)
+	textboxBg.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+	textboxBg.BorderSizePixel = 0
+	textboxBg.Parent = feedbackSection
+	
+	Instance.new("UICorner", textboxBg).CornerRadius = UDim.new(0.1, 0)
+	
+	local feedbackBox = Instance.new("TextBox")
+	feedbackBox.Size = UDim2.new(1, -16, 1, -16)
+	feedbackBox.Position = UDim2.new(0, 8, 0, 8)
+	feedbackBox.BackgroundTransparency = 1
+	feedbackBox.Text = ""
+	feedbackBox.PlaceholderText = "Share your thoughts..."
+	feedbackBox.TextColor3 = Color3.new(1, 1, 1)
+	feedbackBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 140)
+	feedbackBox.TextSize = 14
+	feedbackBox.Font = Enum.Font.Gotham
+	feedbackBox.TextWrapped = true
+	feedbackBox.TextXAlignment = Enum.TextXAlignment.Left
+	feedbackBox.TextYAlignment = Enum.TextYAlignment.Top
+	feedbackBox.MultiLine = true
+	feedbackBox.ClearTextOnFocus = false
+	feedbackBox.Parent = textboxBg
+	
+	local sendBtn = Instance.new("TextButton")
+	sendBtn.Size = UDim2.new(1, -20, 0, 28)
+	sendBtn.Position = UDim2.new(0, 10, 0, 107)
+	sendBtn.BackgroundColor3 = Color3.fromRGB(120, 255, 180)
+	sendBtn.BorderSizePixel = 0
+	sendBtn.Text = "📤 Send Feedback"
+	sendBtn.TextColor3 = Color3.fromRGB(18, 18, 22)
+	sendBtn.TextSize = 16
+	sendBtn.Font = Enum.Font.GothamBold
+	sendBtn.Parent = feedbackSection
+	
+	Instance.new("UICorner", sendBtn).CornerRadius = UDim.new(0.15, 0)
+	
+	sendBtn.MouseButton1Click:Connect(function()
+		local msg = feedbackBox.Text
+		if msg == "" or #msg < 3 then
+			Notify("⚠️ Too short", "Write at least 3 characters")
+			return
+		end
+		
+		if #msg > 500 then
+			Notify("⚠️ Too long", "Max 500 characters")
+			return
+		end
+		
+		SendFeedback(msg)
+		feedbackBox.Text = ""
+		
+		wait(1)
+		if sg.Parent then
+			sg:Destroy()
+			ShowHelp()
+		end
+	end)
+	
+	-- RECENT MESSAGES
+	local messagesSection = Instance.new("Frame")
+	messagesSection.Size = UDim2.new(1, -40, 0, 85)
+	messagesSection.Position = UDim2.new(0, 20, 0, 625)
+	messagesSection.BackgroundColor3 = Color3.fromRGB(28, 28, 35)
+	messagesSection.BorderSizePixel = 0
+	messagesSection.Parent = main
+	
+	Instance.new("UICorner", messagesSection).CornerRadius = UDim.new(0.06, 0)
+	
+	local msgTitle = Instance.new("TextLabel")
+	msgTitle.Size = UDim2.new(1, -20, 0, 22)
+	msgTitle.Position = UDim2.new(0, 10, 0, 6)
+	msgTitle.BackgroundTransparency = 1
+	msgTitle.Text = "💭 Recent Feedback (" .. #recentMessages .. ")"
+	msgTitle.TextColor3 = Color3.fromRGB(180, 140, 255)
+	msgTitle.TextSize = 16
+	msgTitle.Font = Enum.Font.GothamBold
+	msgTitle.TextXAlignment = Enum.TextXAlignment.Left
+	msgTitle.Parent = messagesSection
+	
+	local msgScroll = Instance.new("ScrollingFrame")
+	msgScroll.Size = UDim2.new(1, -20, 0, 52)
+	msgScroll.Position = UDim2.new(0, 10, 0, 28)
+	msgScroll.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+	msgScroll.BorderSizePixel = 0
+	msgScroll.ScrollBarThickness = 4
+	msgScroll.ScrollBarImageColor3 = Color3.fromRGB(180, 140, 255)
+	msgScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	msgScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	msgScroll.Parent = messagesSection
+	
+	Instance.new("UICorner", msgScroll).CornerRadius = UDim.new(0.1, 0)
+	
+	local msgList = Instance.new("UIListLayout")
+	msgList.Padding = UDim.new(0, 8)
+	msgList.Parent = msgScroll
+	
+	if #recentMessages == 0 then
+		local noMsg = Instance.new("TextLabel")
+		noMsg.Size = UDim2.new(1, -10, 0, 40)
+		noMsg.BackgroundTransparency = 1
+		noMsg.Text = "No feedback yet. Be the first! 🎉"
+		noMsg.TextColor3 = Color3.fromRGB(140, 140, 160)
+		noMsg.TextSize = 13
+		noMsg.Font = Enum.Font.GothamItalic
+		noMsg.Parent = msgScroll
+	else
+		for i, msgData in ipairs(recentMessages) do
+			local msgCard = Instance.new("Frame")
+			msgCard.Size = UDim2.new(1, -10, 0, 60)
+			msgCard.BackgroundColor3 = Color3.fromRGB(32, 32, 42)
+			msgCard.BorderSizePixel = 0
+			msgCard.Parent = msgScroll
+			
+			Instance.new("UICorner", msgCard).CornerRadius = UDim.new(0.1, 0)
+			
+			local avatar = Instance.new("ImageLabel")
+			avatar.Size = UDim2.new(0, 40, 0, 40)
+			avatar.Position = UDim2.new(0, 8, 0, 10)
+			avatar.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+			avatar.BorderSizePixel = 0
+			avatar.Image = msgData.thumbnail
+			avatar.Parent = msgCard
+			
+			Instance.new("UICorner", avatar).CornerRadius = UDim.new(0.5, 0)
+			
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Size = UDim2.new(1, -130, 0, 16)
+			nameLabel.Position = UDim2.new(0, 55, 0, 8)
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.Text = msgData.displayName .. " @" .. msgData.username
+			nameLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
+			nameLabel.TextSize = 13
+			nameLabel.Font = Enum.Font.GothamBold
+			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+			nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+			nameLabel.Parent = msgCard
+			
+			local status = CheckPlayerStatus(msgData.userId)
+			
+			if status.isOwner then
+				nameLabel.TextColor3 = Color3.new(1, 1, 1)
+				
+				local gradient = Instance.new("UIGradient")
+				gradient.Color = ColorSequence.new{
+					ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 50, 50)),
+					ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 0, 0)),
+					ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 20))
+				}
+				gradient.Offset = Vector2.new(-1, 0)
+				gradient.Parent = nameLabel
+				
+				spawn(function()
+					while nameLabel.Parent and msgCard.Parent do
+						local tween = TweenService:Create(gradient, TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {Offset = Vector2.new(1, 0)})
+						tween:Play()
+						tween.Completed:Wait()
+						if gradient.Parent then
+							gradient.Offset = Vector2.new(-1, 0)
+						end
+					end
+				end)
+				
+				local crown = Instance.new("TextLabel")
+				crown.Size = UDim2.new(0, 20, 0, 20)
+				crown.Position = UDim2.new(0, 30, 0, -2)
+				crown.BackgroundTransparency = 1
+				crown.Text = "👑"
+				crown.TextSize = 16
+				crown.ZIndex = 10
+				crown.Parent = msgCard
+				
+				spawn(function()
+					while crown.Parent and msgCard.Parent do
+						local bounce = TweenService:Create(crown, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {Position = UDim2.new(0, 30, 0, -6)})
+						bounce:Play()
+						
+						wait(3)
+						if crown.Parent then
+							bounce:Cancel()
+							local spin = TweenService:Create(crown, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Rotation = 380})
+							spin:Play()
+							spin.Completed:Wait()
+							if crown.Parent then
+								local reset = TweenService:Create(crown, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.InOut), {Rotation = 0})
+								reset:Play()
+								reset.Completed:Wait()
+							end
+						end
+					end
+				end)
+				
+			elseif status.isPremium or status.isStaff then
+				nameLabel.TextColor3 = Color3.new(1, 1, 1)
+				
+				local gradient = Instance.new("UIGradient")
+				gradient.Color = ColorSequence.new{
+					ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 200, 255)),
+					ColorSequenceKeypoint.new(0.5, Color3.fromRGB(50, 150, 255)),
+					ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 100, 200))
+				}
+				gradient.Offset = Vector2.new(-1, 0)
+				gradient.Parent = nameLabel
+				
+				spawn(function()
+					while nameLabel.Parent and msgCard.Parent do
+						local tween = TweenService:Create(gradient, TweenInfo.new(4, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {Offset = Vector2.new(1, 0)})
+						tween:Play()
+						tween.Completed:Wait()
+						if gradient.Parent then
+							gradient.Offset = Vector2.new(-1, 0)
+						end
+					end
+				end)
+				
+				local diamond = Instance.new("TextLabel")
+				diamond.Size = UDim2.new(0, 20, 0, 20)
+				diamond.Position = UDim2.new(0, 30, 0, -2)
+				diamond.BackgroundTransparency = 1
+				diamond.Text = "💎"
+				diamond.TextSize = 14
+				diamond.ZIndex = 10
+				diamond.Parent = msgCard
+				
+				spawn(function()
+					while diamond.Parent and msgCard.Parent do
+						local float = TweenService:Create(diamond, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), {Position = UDim2.new(0, 30, 0, -6)})
+						float:Play()
+						
+						wait(3)
+						if diamond.Parent then
+							float:Cancel()
+							local spin = TweenService:Create(diamond, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Rotation = 380})
+							spin:Play()
+							spin.Completed:Wait()
+							if diamond.Parent then
+								local reset = TweenService:Create(diamond, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.InOut), {Rotation = 0})
+								reset:Play()
+								reset.Completed:Wait()
+							end
+						end
+					end
+				end)
+			end
+			
+			local timeLabel = Instance.new("TextLabel")
+			timeLabel.Size = UDim2.new(0, 60, 0, 16)
+			timeLabel.Position = UDim2.new(1, -68, 0, 8)
+			timeLabel.BackgroundTransparency = 1
+			timeLabel.Text = os.date("%I:%M %p", msgData.timestamp)
+			timeLabel.TextColor3 = Color3.fromRGB(130, 130, 150)
+			timeLabel.TextSize = 11
+			timeLabel.Font = Enum.Font.Gotham
+			timeLabel.TextXAlignment = Enum.TextXAlignment.Right
+			timeLabel.Parent = msgCard
+			
+			local msgText = Instance.new("TextLabel")
+			msgText.Size = UDim2.new(1, -60, 0, 32)
+			msgText.Position = UDim2.new(0, 55, 0, 26)
+			msgText.BackgroundTransparency = 1
+			msgText.Text = msgData.message
+			msgText.TextColor3 = Color3.fromRGB(180, 180, 200)
+			msgText.TextSize = 12
+			msgText.Font = Enum.Font.Gotham
+			msgText.TextXAlignment = Enum.TextXAlignment.Left
+			msgText.TextYAlignment = Enum.TextYAlignment.Top
+			msgText.TextWrapped = true
+			msgText.TextTruncate = Enum.TextTruncate.AtEnd
+			msgText.Parent = msgCard
+		end
+	end
+	
+	blur.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			TweenService:Create(main, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In), {Size = UDim2.new(0, 0, 0, 0)}):Play()
+			wait(0.3)
+			sg:Destroy()
+		end
+	end)
+end
+
+-- Commands
+player.Chatted:Connect(function(msg)
+	if not scriptActive then return end
+	
+	local m = msg:lower()
+	
+	if m == ".start" then
+		StartRace()
+	elseif m == ".stop" then
+		StopRace()
+	elseif m == ".tp" then
+		TPQueue()
+	elseif m == ".progress" then
+		ShowProgress()
+	elseif m == ".delete" then
+		DeleteScript()
+	elseif m == ".help" then
+		ShowHelp()
+	end
+end)
+
+-- Modify GUI on load
+wait(1)
+
+FetchOnlineMessages()
+wait(1)
+if #recentMessages == 0 then
+	LoadMessages()
+end
+
+pcall(function()
+	local playerGui = player:WaitForChild("PlayerGui", 5)
+	if not playerGui then return end
+	
+	local mainUI = playerGui:WaitForChild("Main_User_Interface", 5)
+	if not mainUI then return end
+	
+	local teleportFrame = mainUI:WaitForChild("Teleport", 5)
+	if not teleportFrame then return end
+	
+	local container1 = teleportFrame:FindFirstChild("Container")
+	if not container1 then return end
+	
+	local races = container1:FindFirstChild("Races")
+	if not races then return end
+	
+	local race1 = races:WaitForChild("Race1", 5)
+	if not race1 then return end
+	
+	local container2 = race1:FindFirstChild("Container")
+	if not container2 then return end
+	
+	local tpButton = container2:FindFirstChild("Teleport")
+	if tpButton and tpButton:IsA("ImageButton") then
+		tpButton.Visible = false
+	end
+	
+	local label = container2:FindFirstChild("Label")
+	if label and label:IsA("TextLabel") then
+		originalLabelText = label.Text
+		label.Text = 'In the chat say ".tp" to teleport right away\n- Buy support if you like this script! @1sulo'
+		label.TextWrapped = true
+		label.TextScaled = true
+		label.TextSize = 14
+	end
+end)
+
+Notify("🏁 Loaded!", "Type .help for commands")
+print("========================================")
+print("🏁 AUTO RACE SCRIPT LOADED (v1.0 FIXED)")
+print("Commands: .start .stop .tp .progress .delete .help")
+print("✅ Car spawns 50 studs behind checkpoint")
+print("✅ Car faces FORWARD for manual driving")
+print("💎 Premium & 👑 Owner effects enabled!")
+print("========================================")
