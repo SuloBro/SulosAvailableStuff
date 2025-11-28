@@ -809,7 +809,7 @@ local function ShowHelp()
 	msgTitle.Size = UDim2.new(1, -20, 0, 22)
 	msgTitle.Position = UDim2.new(0, 10, 0, 6)
 	msgTitle.BackgroundTransparency = 1
-	msgTitle.Text = "💭 Recent Feedback (" .. #recentMessages .. ")"
+	msgTitle.Text = "💭 You're Feedback (" .. #recentMessages .. ")"
 	msgTitle.TextColor3 = Color3.fromRGB(180, 140, 255)
 	msgTitle.TextSize = 16
 	msgTitle.Font = Enum.Font.GothamBold
