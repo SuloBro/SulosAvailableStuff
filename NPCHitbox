@@ -1,0 +1,702 @@
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- GROUP CHECK
+local GROUP_ID = 10612101
+if not LocalPlayer:IsInGroup(GROUP_ID) then
+    local msg = Instance.new("ScreenGui")
+    msg.Parent = playerGui
+    local txt = Instance.new("TextLabel")
+    txt.Size = UDim2.new(1, 0, 0.2, 0)
+    txt.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    txt.Text = "Join Smokex group to use this!"
+    txt.TextSize = 20
+    txt.Parent = msg
+    return
+end
+
+-- CONFIG
+local MAX_DISTANCE = 35
+local HITBOX_SIZE = 20
+local HITBOX_TRANSPARENCY = 0.6
+local npc_original_properties = {}
+local hitboxEnabled = false
+local systemInitialized = false
+local currentTargetNPC = nil
+local searchInLiving = false
+local livingFolder = Workspace:FindFirstChild("Living")
+
+local npcBodyParts = {"Head", "Torso", "Right Arm", "Left Arm", "HumanoidRootPart", "UpperTorso", "RightUpperArm", "LeftUpperArm"}
+
+local function isNPC(model)
+    if not model or model:IsA("Player") then return false end
+    local humanoid = model:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return false end
+    for _, player in pairs(Players:GetPlayers()) do
+        if player.Character == model then return false end
+    end
+    return true
+end
+
+local function findNearestNPC()
+    local character = LocalPlayer.Character
+    if not character then return nil end
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return nil end
+    
+    local nearest = nil
+    local nearestDistance = MAX_DISTANCE
+    local searchLocation = searchInLiving and livingFolder or Workspace
+    if not searchLocation then return nil end
+    
+    for _, model in pairs(searchLocation:GetChildren()) do
+        if model:IsA("Model") and isNPC(model) then
+            local npcRoot = model:FindFirstChild("HumanoidRootPart")
+            if npcRoot then
+                local distance = (rootPart.Position - npcRoot.Position).Magnitude
+                if distance < nearestDistance then
+                    nearest = model
+                    nearestDistance = distance
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+local function savePart(npc, part)
+    if not npc or not part then return end
+    if not npc_original_properties[npc] then npc_original_properties[npc] = {} end
+    if not npc_original_properties[npc][part.Name] then
+        npc_original_properties[npc][part.Name] = {
+            CanCollide = part.CanCollide,
+            Transparency = part.Transparency,
+            Size = part.Size
+        }
+    end
+end
+
+local function restorePart(npc)
+    if not npc or not npc_original_properties[npc] then return end
+    for partName, properties in pairs(npc_original_properties[npc]) do
+        local part = npc:FindFirstChild(partName)
+        if part and part:IsA("BasePart") then
+            pcall(function()
+                part.CanCollide = properties.CanCollide
+                part.Transparency = properties.Transparency
+                part.Size = properties.Size
+            end)
+        end
+    end
+    npc_original_properties[npc] = nil
+end
+
+local function expandNearestNPCHitbox(npc)
+    if not npc or not isNPC(npc) then return end
+    for _, partName in ipairs(npcBodyParts) do
+        local part = npc:FindFirstChild(partName)
+        if part and part:IsA("BasePart") then
+            pcall(function()
+                savePart(npc, part)
+                part.CanCollide = false
+                part.Transparency = HITBOX_TRANSPARENCY
+                part.Size = Vector3.new(HITBOX_SIZE, HITBOX_SIZE, HITBOX_SIZE)
+            end)
+        end
+    end
+end
+
+local frameCounter = 0
+RunService.Heartbeat:Connect(function()
+    if not systemInitialized then return end
+    frameCounter = frameCounter + 1
+    if frameCounter % 2 ~= 0 then return end
+    
+    if not hitboxEnabled then
+        if currentTargetNPC then
+            restorePart(currentTargetNPC)
+            currentTargetNPC = nil
+        end
+        return
+    end
+    
+    local nearestNPC = findNearestNPC()
+    if nearestNPC ~= currentTargetNPC then
+        if currentTargetNPC then restorePart(currentTargetNPC) end
+        currentTargetNPC = nearestNPC
+        if currentTargetNPC then expandNearestNPCHitbox(currentTargetNPC) end
+    elseif currentTargetNPC and currentTargetNPC.Parent then
+        expandNearestNPCHitbox(currentTargetNPC)
+    end
+end)
+
+-- GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "NPCHitboxGUI"
+gui.ResetOnSpawn = false
+gui.Parent = playerGui
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 280, 0, 280)
+mainFrame.Position = UDim2.new(0.5, -140, 0.5, -140)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = gui
+mainFrame.Name = "MainFrame"
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = mainFrame
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(100, 150, 255)
+stroke.Thickness = 2
+stroke.Parent = mainFrame
+
+-- Swaying gradient animation on stroke
+spawn(function()
+    while mainFrame.Parent do
+        for i = 0, 1, 0.02 do
+            if not mainFrame.Parent then break end
+            stroke.Transparency = 0.2 + math.sin(i * math.pi * 2) * 0.15
+            wait(0.03)
+        end
+    end
+end)
+
+-- Title
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+title.BorderSizePixel = 0
+title.Text = "NPC Hitbox System - @1sulo"
+title.TextColor3 = Color3.fromRGB(220, 240, 255)
+title.TextSize = 14
+title.Font = Enum.Font.GothamBold
+title.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 12)
+titleCorner.Parent = title
+
+local titleStroke = Instance.new("UIStroke")
+titleStroke.Color = Color3.fromRGB(100, 150, 255)
+titleStroke.Thickness = 1
+titleStroke.Transparency = 0.5
+titleStroke.Parent = title
+
+-- Settings Button (on the side)
+local settingsBtn = Instance.new("TextButton")
+settingsBtn.Size = UDim2.new(0, 35, 0, 35)
+settingsBtn.Position = UDim2.new(1, 5, 0, 35)
+settingsBtn.BackgroundColor3 = Color3.fromRGB(155, 120, 200)
+settingsBtn.BorderSizePixel = 0
+settingsBtn.Text = "▶"
+settingsBtn.TextSize = 20
+settingsBtn.Parent = mainFrame
+
+local settingsCorner = Instance.new("UICorner")
+settingsCorner.CornerRadius = UDim.new(0, 8)
+settingsCorner.Parent = settingsBtn
+
+local settingsStroke = Instance.new("UIStroke")
+settingsStroke.Color = Color3.fromRGB(100, 150, 255)
+settingsStroke.Thickness = 1.5
+settingsStroke.Parent = settingsBtn
+
+-- Initialize Button
+local initBtn = Instance.new("TextButton")
+initBtn.Size = UDim2.new(1, -20, 0, 35)
+initBtn.Position = UDim2.new(0, 10, 0, 35)
+initBtn.BackgroundColor3 = Color3.fromRGB(80, 180, 120)
+initBtn.BorderSizePixel = 0
+initBtn.Text = "Load Data ( Click Me to load Monsters )"
+initBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+initBtn.TextSize = 12
+initBtn.Font = Enum.Font.GothamBold
+initBtn.Parent = mainFrame
+
+local initCorner = Instance.new("UICorner")
+initCorner.CornerRadius = UDim.new(0, 8)
+initCorner.Parent = initBtn
+
+local initStroke = Instance.new("UIStroke")
+initStroke.Color = Color3.fromRGB(100, 200, 120)
+initStroke.Thickness = 1.5
+initStroke.Parent = initBtn
+
+initBtn.MouseEnter:Connect(function()
+    initBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 140)
+end)
+
+initBtn.MouseLeave:Connect(function()
+    initBtn.BackgroundColor3 = Color3.fromRGB(80, 180, 120)
+end)
+
+initBtn.MouseButton1Click:Connect(function()
+    systemInitialized = true
+    initBtn:Destroy()
+end)
+
+-- Enable Button
+local enableBtn = Instance.new("TextButton")
+enableBtn.Size = UDim2.new(1, -20, 0, 35)
+enableBtn.Position = UDim2.new(0, 10, 0, 75)
+enableBtn.BackgroundColor3 = Color3.fromRGB(60, 150, 100)
+enableBtn.BorderSizePixel = 0
+enableBtn.Text = "ENABLE HITBOX"
+enableBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+enableBtn.TextSize = 12
+enableBtn.Font = Enum.Font.GothamBold
+enableBtn.Parent = mainFrame
+
+local enableCorner = Instance.new("UICorner")
+enableCorner.CornerRadius = UDim.new(0, 8)
+enableCorner.Parent = enableBtn
+
+local enableStroke = Instance.new("UIStroke")
+enableStroke.Color = Color3.fromRGB(100, 180, 150)
+enableStroke.Thickness = 1.5
+enableStroke.Parent = enableBtn
+
+enableBtn.MouseEnter:Connect(function()
+    enableBtn.BackgroundColor3 = enableBtn.BackgroundColor3.R > 0.2 and Color3.fromRGB(80, 170, 120) or Color3.fromRGB(170, 100, 100)
+end)
+
+enableBtn.MouseLeave:Connect(function()
+    enableBtn.BackgroundColor3 = hitboxEnabled and Color3.fromRGB(150, 80, 80) or Color3.fromRGB(60, 150, 100)
+end)
+
+enableBtn.MouseButton1Click:Connect(function()
+    if not systemInitialized then return end
+    hitboxEnabled = not hitboxEnabled
+    if hitboxEnabled then
+        enableBtn.BackgroundColor3 = Color3.fromRGB(150, 80, 80)
+        enableBtn.Text = "DISABLE HITBOX"
+    else
+        enableBtn.BackgroundColor3 = Color3.fromRGB(60, 150, 100)
+        enableBtn.Text = "ENABLE HITBOX"
+    end
+end)
+
+-- Workspace Button
+local workspaceBtn = Instance.new("TextButton")
+workspaceBtn.Size = UDim2.new(0.48, 0, 0, 30)
+workspaceBtn.Position = UDim2.new(0, 10, 0, 115)
+workspaceBtn.BackgroundColor3 = Color3.fromRGB(80, 100, 150)
+workspaceBtn.BorderSizePixel = 0
+workspaceBtn.Text = "Other Games"
+workspaceBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+workspaceBtn.TextSize = 10
+workspaceBtn.Font = Enum.Font.GothamBold
+workspaceBtn.Parent = mainFrame
+
+local wsCorner = Instance.new("UICorner")
+wsCorner.CornerRadius = UDim.new(0, 6)
+wsCorner.Parent = workspaceBtn
+
+local wsStroke = Instance.new("UIStroke")
+wsStroke.Color = Color3.fromRGB(100, 130, 180)
+wsStroke.Thickness = 1
+wsStroke.Parent = workspaceBtn
+
+workspaceBtn.MouseButton1Click:Connect(function()
+    searchInLiving = false
+    workspaceBtn.BackgroundColor3 = Color3.fromRGB(80, 100, 150)
+    livingBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+end)
+
+-- Living Button
+local livingBtn = Instance.new("TextButton")
+livingBtn.Size = UDim2.new(0.48, 0, 0, 30)
+livingBtn.Position = UDim2.new(0.52, 0, 0, 115)
+livingBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+livingBtn.BorderSizePixel = 0
+livingBtn.Text = "😍 The Forge "
+livingBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+livingBtn.TextSize = 10
+livingBtn.Font = Enum.Font.GothamBold
+livingBtn.Parent = mainFrame
+
+local liveCorner = Instance.new("UICorner")
+liveCorner.CornerRadius = UDim.new(0, 6)
+liveCorner.Parent = livingBtn
+
+local liveStroke = Instance.new("UIStroke")
+liveStroke.Color = Color3.fromRGB(80, 130, 100)
+liveStroke.Thickness = 1
+liveStroke.Parent = livingBtn
+
+livingBtn.MouseButton1Click:Connect(function()
+    searchInLiving = true
+    livingBtn.BackgroundColor3 = Color3.fromRGB(80, 150, 100)
+    workspaceBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+end)
+
+-- Status Label
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -20, 0, 20)
+statusLabel.Position = UDim2.new(0, 10, 0, 150)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "❌ - Disabled"
+statusLabel.TextColor3 = Color3.fromRGB(200, 100, 100)
+statusLabel.TextSize = 10
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.Parent = mainFrame
+
+-- Distance Label
+local distanceLabel = Instance.new("TextLabel")
+distanceLabel.Size = UDim2.new(1, -20, 0, 20)
+distanceLabel.Position = UDim2.new(0, 10, 0, 175)
+distanceLabel.BackgroundTransparency = 1
+distanceLabel.Text = "📍 - Distance: --"
+distanceLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
+distanceLabel.TextSize = 10
+distanceLabel.Font = Enum.Font.Gotham
+distanceLabel.Parent = mainFrame
+
+-- Target Label
+local targetLabel = Instance.new("TextLabel")
+targetLabel.Size = UDim2.new(1, -20, 0, 20)
+targetLabel.Position = UDim2.new(0, 10, 0, 200)
+targetLabel.BackgroundTransparency = 1
+targetLabel.Text = "Monster Focus: None"
+targetLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
+targetLabel.TextSize = 10
+targetLabel.Font = Enum.Font.Gotham
+targetLabel.Parent = mainFrame
+
+-- Folder Label
+local folderLabel = Instance.new("TextLabel")
+folderLabel.Size = UDim2.new(1, -20, 0, 20)
+folderLabel.Position = UDim2.new(0, 10, 0, 225)
+folderLabel.BackgroundTransparency = 1
+folderLabel.Text = "📁 Searching: Workspace"
+folderLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
+folderLabel.TextSize = 10
+folderLabel.Font = Enum.Font.Gotham
+folderLabel.Parent = mainFrame
+
+-- ===== SETTINGS FRAME =====
+local settingsFrame = Instance.new("Frame")
+settingsFrame.Size = UDim2.new(0, 280, 0, 280)
+settingsFrame.Position = UDim2.new(0.5, -140, 0.5, -140)
+settingsFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+settingsFrame.BorderSizePixel = 0
+settingsFrame.Active = true
+settingsFrame.Draggable = true
+settingsFrame.Visible = false
+settingsFrame.Parent = gui
+settingsFrame.Name = "SettingsFrame"
+
+local settingsCorner2 = Instance.new("UICorner")
+settingsCorner2.CornerRadius = UDim.new(0, 12)
+settingsCorner2.Parent = settingsFrame
+
+local settingsStroke2 = Instance.new("UIStroke")
+settingsStroke2.Color = Color3.fromRGB(100, 150, 255)
+settingsStroke2.Thickness = 2
+settingsStroke2.Parent = settingsFrame
+
+spawn(function()
+    while settingsFrame.Parent do
+        for i = 0, 1, 0.02 do
+            if not settingsFrame.Parent then break end
+            settingsStroke2.Transparency = 0.2 + math.sin(i * math.pi * 2) * 0.15
+            wait(0.03)
+        end
+    end
+end)
+
+-- Settings Title
+local settingsTitle = Instance.new("TextLabel")
+settingsTitle.Size = UDim2.new(1, 0, 0, 30)
+settingsTitle.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+settingsTitle.BorderSizePixel = 0
+settingsTitle.Text = "⚙️ Settings"
+settingsTitle.TextColor3 = Color3.fromRGB(220, 240, 255)
+settingsTitle.TextSize = 14
+settingsTitle.Font = Enum.Font.GothamBold
+settingsTitle.Parent = settingsFrame
+
+local settingsTitleCorner = Instance.new("UICorner")
+settingsTitleCorner.CornerRadius = UDim.new(0, 12)
+settingsTitleCorner.Parent = settingsTitle
+
+-- Return Button
+local returnBtn = Instance.new("TextButton")
+returnBtn.Size = UDim2.new(0, 35, 0, 35)
+returnBtn.Position = UDim2.new(1, 5, 0, 35)
+returnBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 100)
+returnBtn.BorderSizePixel = 0
+returnBtn.Text = "◀"
+returnBtn.TextSize = 20
+returnBtn.Parent = settingsFrame
+
+local returnCorner = Instance.new("UICorner")
+returnCorner.CornerRadius = UDim.new(0, 8)
+returnCorner.Parent = returnBtn
+
+local returnStroke = Instance.new("UIStroke")
+returnStroke.Color = Color3.fromRGB(200, 120, 120)
+returnStroke.Thickness = 1.5
+returnStroke.Parent = returnBtn
+
+returnBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = true
+    settingsFrame.Visible = false
+end)
+
+-- Scrolling Frame for Settings
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1, -20, 1, -50)
+scrollFrame.Position = UDim2.new(0, 10, 0, 40)
+scrollFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ScrollBarThickness = 6
+scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 150, 255)
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 400)
+scrollFrame.Parent = settingsFrame
+
+local scrollCorner = Instance.new("UICorner")
+scrollCorner.CornerRadius = UDim.new(0, 8)
+scrollCorner.Parent = scrollFrame
+
+-- Hitbox Size Slider
+local sizeLabel = Instance.new("TextLabel")
+sizeLabel.Size = UDim2.new(1, -20, 0, 20)
+sizeLabel.Position = UDim2.new(0, 10, 0, 10)
+sizeLabel.BackgroundTransparency = 1
+sizeLabel.Text = "Hitbox Size: " .. HITBOX_SIZE
+sizeLabel.TextColor3 = Color3.fromRGB(220, 240, 255)
+sizeLabel.TextSize = 11
+sizeLabel.Font = Enum.Font.GothamBold
+sizeLabel.Parent = scrollFrame
+
+local sizeSlider = Instance.new("Frame")
+sizeSlider.Size = UDim2.new(1, -20, 0, 20)
+sizeSlider.Position = UDim2.new(0, 10, 0, 35)
+sizeSlider.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+sizeSlider.BorderSizePixel = 0
+sizeSlider.Parent = scrollFrame
+
+local sizeSliderCorner = Instance.new("UICorner")
+sizeSliderCorner.CornerRadius = UDim.new(0, 6)
+sizeSliderCorner.Parent = sizeSlider
+
+local sizeFill = Instance.new("Frame")
+sizeFill.Size = UDim2.new((HITBOX_SIZE - 1) / 49, 0, 1, 0)
+sizeFill.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+sizeFill.BorderSizePixel = 0
+sizeFill.Parent = sizeSlider
+
+local sizeFillCorner = Instance.new("UICorner")
+sizeFillCorner.CornerRadius = UDim.new(0, 6)
+sizeFillCorner.Parent = sizeFill
+
+local sizeHandle = Instance.new("Frame")
+sizeHandle.Size = UDim2.new(0, 12, 1, 0)
+sizeHandle.Position = UDim2.new((HITBOX_SIZE - 1) / 49, -6, 0, 0)
+sizeHandle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+sizeHandle.BorderSizePixel = 0
+sizeHandle.Parent = sizeSlider
+
+local sizeHandleCorner = Instance.new("UICorner")
+sizeHandleCorner.CornerRadius = UDim.new(0, 3)
+sizeHandleCorner.Parent = sizeHandle
+
+local draggingSize = false
+sizeHandle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        draggingSize = true
+    end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if draggingSize and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local pos = math.clamp((input.Position.X - sizeSlider.AbsolutePosition.X) / sizeSlider.AbsoluteSize.X, 0, 1)
+        HITBOX_SIZE = math.floor(1 + pos * 49)
+        sizeFill.Size = UDim2.new(pos, 0, 1, 0)
+        sizeHandle.Position = UDim2.new(pos, -6, 0, 0)
+        sizeLabel.Text = "Hitbox Size: " .. HITBOX_SIZE
+    end
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        draggingSize = false
+    end
+end)
+
+-- Transparency Slider
+local transLabel = Instance.new("TextLabel")
+transLabel.Size = UDim2.new(1, -20, 0, 20)
+transLabel.Position = UDim2.new(0, 10, 0, 70)
+transLabel.BackgroundTransparency = 1
+transLabel.Text = "Hitbox Transparency: " .. math.floor(HITBOX_TRANSPARENCY * 10) / 10
+transLabel.TextColor3 = Color3.fromRGB(220, 240, 255)
+transLabel.TextSize = 11
+transLabel.Font = Enum.Font.GothamBold
+transLabel.Parent = scrollFrame
+
+local transSlider = Instance.new("Frame")
+transSlider.Size = UDim2.new(1, -20, 0, 20)
+transSlider.Position = UDim2.new(0, 10, 0, 95)
+transSlider.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+transSlider.BorderSizePixel = 0
+transSlider.Parent = scrollFrame
+
+local transSliderCorner = Instance.new("UICorner")
+transSliderCorner.CornerRadius = UDim.new(0, 6)
+transSliderCorner.Parent = transSlider
+
+local transFill = Instance.new("Frame")
+transFill.Size = UDim2.new(HITBOX_TRANSPARENCY, 0, 1, 0)
+transFill.BackgroundColor3 = Color3.fromRGB(150, 200, 100)
+transFill.BorderSizePixel = 0
+transFill.Parent = transSlider
+
+local transFillCorner = Instance.new("UICorner")
+transFillCorner.CornerRadius = UDim.new(0, 6)
+transFillCorner.Parent = transFill
+
+local transHandle = Instance.new("Frame")
+transHandle.Size = UDim2.new(0, 12, 1, 0)
+transHandle.Position = UDim2.new(HITBOX_TRANSPARENCY, -6, 0, 0)
+transHandle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+transHandle.BorderSizePixel = 0
+transHandle.Parent = transSlider
+
+local transHandleCorner = Instance.new("UICorner")
+transHandleCorner.CornerRadius = UDim.new(0, 3)
+transHandleCorner.Parent = transHandle
+
+local draggingTrans = false
+transHandle.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        draggingTrans = true
+    end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if draggingTrans and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local pos = math.clamp((input.Position.X - transSlider.AbsolutePosition.X) / transSlider.AbsoluteSize.X, 0, 1)
+        HITBOX_TRANSPARENCY = pos
+        transFill.Size = UDim2.new(pos, 0, 1, 0)
+        transHandle.Position = UDim2.new(pos, -6, 0, 0)
+        transLabel.Text = "👻 Transparency: " .. math.floor(HITBOX_TRANSPARENCY * 10) / 10
+    end
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        draggingTrans = false
+    end
+end)
+
+-- Collision Toggle
+local collisionToggle = Instance.new("TextButton")
+collisionToggle.Size = UDim2.new(1, -20, 0, 35)
+collisionToggle.Position = UDim2.new(0, 10, 0, 130)
+collisionToggle.BackgroundColor3 = Color3.fromRGB(80, 100, 150)
+collisionToggle.BorderSizePixel = 0
+collisionToggle.Text = "Collision: OFF"
+collisionToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+collisionToggle.TextSize = 11
+collisionToggle.Font = Enum.Font.GothamBold
+collisionToggle.Parent = scrollFrame
+
+local collisionCorner = Instance.new("UICorner")
+collisionCorner.CornerRadius = UDim.new(0, 8)
+collisionCorner.Parent = collisionToggle
+
+local collisionStroke = Instance.new("UIStroke")
+collisionStroke.Color = Color3.fromRGB(100, 130, 180)
+collisionStroke.Thickness = 1
+collisionStroke.Parent = collisionToggle
+
+local collisionEnabled = false
+collisionToggle.MouseButton1Click:Connect(function()
+    collisionEnabled = not collisionEnabled
+    if collisionEnabled then
+        collisionToggle.BackgroundColor3 = Color3.fromRGB(100, 180, 120)
+        collisionToggle.Text = "✅ Collision: ON"
+    else
+        collisionToggle.BackgroundColor3 = Color3.fromRGB(80, 100, 150)
+        collisionToggle.Text = "🚫 Collision: OFF"
+    end
+end)
+
+collisionToggle.MouseEnter:Connect(function()
+    collisionToggle.BackgroundColor3 = collisionEnabled and Color3.fromRGB(120, 200, 140) or Color3.fromRGB(100, 120, 170)
+end)
+
+collisionToggle.MouseLeave:Connect(function()
+    collisionToggle.BackgroundColor3 = collisionEnabled and Color3.fromRGB(100, 180, 120) or Color3.fromRGB(80, 100, 150)
+end)
+
+-- Settings Button Click Handler
+settingsBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+    settingsFrame.Visible = true
+end)
+
+settingsBtn.MouseEnter:Connect(function()
+    settingsBtn.BackgroundColor3 = Color3.fromRGB(100, 140, 220)
+end)
+
+settingsBtn.MouseLeave:Connect(function()
+    settingsBtn.BackgroundColor3 = Color3.fromRGB(80, 120, 200)
+end)
+
+returnBtn.MouseEnter:Connect(function()
+    returnBtn.BackgroundColor3 = Color3.fromRGB(220, 120, 120)
+end)
+
+returnBtn.MouseLeave:Connect(function()
+    returnBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 100)
+end)
+
+-- Update loop
+spawn(function()
+    while gui.Parent do
+        if systemInitialized and hitboxEnabled and currentTargetNPC then
+            local distance = 0
+            local character = LocalPlayer.Character
+            if character and currentTargetNPC and currentTargetNPC.Parent then
+                local rootPart = character:FindFirstChild("HumanoidRootPart")
+                local npcRoot = currentTargetNPC:FindFirstChild("HumanoidRootPart")
+                if rootPart and npcRoot then
+                    distance = math.floor((rootPart.Position - npcRoot.Position).Magnitude)
+                end
+            end
+            statusLabel.Text = "✅ Active"
+            statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+            distanceLabel.Text = "📍 Distance: " .. distance .. "s"
+            targetLabel.Text = "🎯 Target: " .. currentTargetNPC.Name
+        elseif systemInitialized and hitboxEnabled then
+            statusLabel.Text = "⏳ Get Close to a monster ! Searching..."
+            statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+        else
+            statusLabel.Text = "❌ Disabled"
+            statusLabel.TextColor3 = Color3.fromRGB(200, 100, 100)
+            distanceLabel.Text = "📍 Distance: --"
+            targetLabel.Text = "🎯 Target: None"
+        end
+        
+        folderLabel.Text = "📁 Searching: " .. (searchInLiving and "Living Folder" or "Workspace")
+        wait(0.3)
+    end
+end)
+
+print("✅ Script loaded! Click INITIALIZE to start.")
