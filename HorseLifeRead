@@ -272,11 +272,11 @@ LoadingFrame.Parent = GUI
 LoadingCorner.CornerRadius = UDim.new(0, 0)
 LoadingCorner.Parent = LoadingFrame
 
-WelcomeLabel.Size = UDim2.new(0.8, 0, 0, 60)
-WelcomeLabel.Position = UDim2.new(0.1, 0, 0.4, 0)
+WelcomeLabel.Size = UDim2.new(0.8, 0, 0.1, 0)
+WelcomeLabel.Position = UDim2.new(0.1, 0, 0.35, 0)
 WelcomeLabel.Text = "Welcome, " .. Player.Name
 WelcomeLabel.Font = Enum.Font.FredokaOne
-WelcomeLabel.TextSize = 36
+WelcomeLabel.TextSize = 24
 WelcomeLabel.TextColor3 = Color3.fromRGB(138, 43, 226)
 WelcomeLabel.BackgroundTransparency = 1
 WelcomeLabel.TextTransparency = 1
@@ -287,11 +287,11 @@ WelcomeStroke.Parent = WelcomeLabel
 WelcomeStroke.Color = Color3.fromRGB(0, 0, 0)
 WelcomeStroke.Thickness = 3
 
-SubtitleLabel.Size = UDim2.new(0.8, 0, 0, 40)
-SubtitleLabel.Position = UDim2.new(0.1, 0, 0.5, 0)
+SubtitleLabel.Size = UDim2.new(0.8, 0, 0.08, 0)
+SubtitleLabel.Position = UDim2.new(0.1, 0, 0.48, 0)
 SubtitleLabel.Text = "Sulo's Horse Catching Farm"
 SubtitleLabel.Font = Enum.Font.FredokaOne
-SubtitleLabel.TextSize = 24
+SubtitleLabel.TextSize = 18
 SubtitleLabel.TextColor3 = Color3.fromRGB(150, 100, 255)
 SubtitleLabel.BackgroundTransparency = 1
 SubtitleLabel.TextTransparency = 1
@@ -304,7 +304,7 @@ SubtitleStroke.Thickness = 2
 
 -- Notification Setup
 NotificationFrame.Name = "NotificationFrame"
-NotificationFrame.Size = UDim2.new(0, 320, 0, 70)
+NotificationFrame.Size = UDim2.new(0.75, 0, 0.12, 0)
 NotificationFrame.Position = UDim2.new(1, 0, 0, 20)
 NotificationFrame.BackgroundColor3 = THEMES.Cyberpunk.NotifBG
 NotificationFrame.BorderSizePixel = 0
@@ -325,11 +325,11 @@ NotificationLabel.Size = UDim2.new(1, -20, 1, -20)
 NotificationLabel.Position = UDim2.new(0, 10, 0, 10)
 NotificationLabel.Text = ""
 NotificationLabel.Font = Enum.Font.FredokaOne
-NotificationLabel.TextSize = 16
+NotificationLabel.TextSize = 14
 NotificationLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
 NotificationLabel.BackgroundTransparency = 1
 NotificationLabel.TextWrapped = true
-NotificationLabel.TextScaled = false
+NotificationLabel.TextScaled = true
 NotificationLabel.TextXAlignment = Enum.TextXAlignment.Center
 NotificationLabel.TextYAlignment = Enum.TextYAlignment.Center
 NotificationLabel.ZIndex = 101
@@ -402,63 +402,63 @@ GroupWarningButtonStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 GroupWarningButtonGradient.Parent = GroupWarningButton
 GroupWarningButtonGradient.Color = ColorSequence.new(Color3.fromRGB(100, 50, 200), Color3.fromRGB(150, 100, 255))
 
--- Main Frame
+-- Main Frame (MOBILE FRIENDLY - SCALED)
 Frame.Name = "TPFrame"
-Frame.Size = UDim2.new(0, 420, 0, 380)
-Frame.Position = UDim2.new(0.5, -210, 0.5, -190)
-Frame.AnchorPoint = Vector2.new(0.5, 0.5)
+Frame.Size = UDim2.new(0.85, 0, 0.75, 0)
+Frame.Position = UDim2.new(0.075, 0, 0.125, 0)
+Frame.AnchorPoint = Vector2.new(0, 0)
 Frame.BorderSizePixel = 0
 Frame.BackgroundTransparency = 0.1
 Frame.Parent = GUI
 
-TitleLabel.Size = UDim2.new(1, -50, 0, 35)
+TitleLabel.Size = UDim2.new(1, -30, 0.08, 0)
 TitleLabel.Position = UDim2.new(0, 15, 0, 8)
 TitleLabel.Text = "🍕 • Sulo's Horse Finder"
 TitleLabel.Font = Enum.Font.FredokaOne
-TitleLabel.TextSize = 20
-TitleLabel.TextScaled = false
+TitleLabel.TextSize = 18
+TitleLabel.TextScaled = true
 TitleLabel.BackgroundTransparency = 1
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Parent = Frame
 
 IslandLabel.Name = "IslandLabel"
-IslandLabel.Size = UDim2.new(1, -50, 0, 22)
-IslandLabel.Position = UDim2.new(0, 15, 0, 43)
+IslandLabel.Size = UDim2.new(1, -30, 0.05, 0)
+IslandLabel.Position = UDim2.new(0, 15, 0.08, 0)
 IslandLabel.Text = "🌴 • Island: Loading..."
 IslandLabel.Font = Enum.Font.FredokaOne
 IslandLabel.TextSize = 14
-IslandLabel.TextScaled = false
+IslandLabel.TextScaled = true
 IslandLabel.BackgroundTransparency = 1
 IslandLabel.TextXAlignment = Enum.TextXAlignment.Left
 IslandLabel.Parent = Frame
 
-CloseButton.Size = UDim2.new(0, 40, 0, 40)
-CloseButton.Position = UDim2.new(1, -48, 0, 8)
+CloseButton.Size = UDim2.new(0.08, 0, 0.08, 0)
+CloseButton.Position = UDim2.new(0.92, 0, 0.01, 0)
 CloseButton.Text = "X"
 CloseButton.Font = Enum.Font.FredokaOne
-CloseButton.TextSize = 22
-CloseButton.TextScaled = false
+CloseButton.TextSize = 18
+CloseButton.TextScaled = true
 CloseButton.AutoButtonColor = false
 CloseButton.BorderSizePixel = 0
 CloseButton.Parent = Frame
 
-StatusLabel.Size = UDim2.new(1, -30, 0, 65)
-StatusLabel.Position = UDim2.new(0, 15, 0, 70)
+StatusLabel.Size = UDim2.new(1, -30, 0.18, 0)
+StatusLabel.Position = UDim2.new(0, 15, 0.15, 0)
 StatusLabel.Font = Enum.Font.FredokaOne
-StatusLabel.TextSize = 15
-StatusLabel.TextScaled = false
+StatusLabel.TextSize = 13
+StatusLabel.TextScaled = true
 StatusLabel.TextWrapped = true
 StatusLabel.TextYAlignment = Enum.TextYAlignment.Top
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.Parent = Frame
 
 WarningLabel.Name = "WarningLabel"
-WarningLabel.Size = UDim2.new(1, -30, 0, 35)
-WarningLabel.Position = UDim2.new(0, 15, 0, 145)
+WarningLabel.Size = UDim2.new(1, -30, 0.08, 0)
+WarningLabel.Position = UDim2.new(0, 15, 0.35, 0)
 WarningLabel.Text = "..."
 WarningLabel.Font = Enum.Font.FredokaOne
-WarningLabel.TextSize = 16
-WarningLabel.TextScaled = false
+WarningLabel.TextSize = 12
+WarningLabel.TextScaled = true
 WarningLabel.TextColor3 = THEMES.Cyberpunk.WarningText
 WarningLabel.BackgroundColor3 = THEMES.Cyberpunk.WarningBG_Other
 WarningLabel.BorderSizePixel = 0
@@ -466,65 +466,65 @@ WarningLabel.Visible = false
 WarningLabel.Parent = Frame
 WarningCorner.CornerRadius = UDim.new(0, 12)
 
-ControlsLabel.Size = UDim2.new(1, -30, 0, 60)
-ControlsLabel.Position = UDim2.new(0, 15, 0, 190)
+ControlsLabel.Size = UDim2.new(1, -30, 0.15, 0)
+ControlsLabel.Position = UDim2.new(0, 15, 0.45, 0)
 ControlsLabel.Text = "CONTROLS:\nZ = Teleport  |  X = Search  |  C = Theme\nV = Support  |  B = Wild Only Mode"
 ControlsLabel.Font = Enum.Font.FredokaOne
-ControlsLabel.TextSize = 11
+ControlsLabel.TextSize = 10
 ControlsLabel.TextScaled = true
 ControlsLabel.TextWrapped = true
 ControlsLabel.TextYAlignment = Enum.TextYAlignment.Top
 ControlsLabel.BackgroundTransparency = 1
 ControlsLabel.Parent = Frame
 
--- First Row of Buttons
-TeleportButton.Size = UDim2.new(0, 75, 0, 42)
-TeleportButton.Position = UDim2.new(0, 15, 0, 280)
-TeleportButton.Text = "Z • TELEPORT"
+-- First Row of Buttons (Responsive sizing)
+TeleportButton.Size = UDim2.new(0.2, -8, 0.1, 0)
+TeleportButton.Position = UDim2.new(0, 15, 0.62, 0)
+TeleportButton.Text = "Z • TP"
 TeleportButton.Font = Enum.Font.FredokaOne
-TeleportButton.TextSize = 17
+TeleportButton.TextSize = 12
 TeleportButton.TextScaled = true
 TeleportButton.AutoButtonColor = false
 TeleportButton.BorderSizePixel = 0
 TeleportButton.Parent = Frame
 
-RefreshButton.Size = UDim2.new(0, 75, 0, 42)
-RefreshButton.Position = UDim2.new(0, 100, 0, 280)
+RefreshButton.Size = UDim2.new(0.2, -8, 0.1, 0)
+RefreshButton.Position = UDim2.new(0.235, 0, 0.62, 0)
 RefreshButton.Text = "X • Search"
 RefreshButton.Font = Enum.Font.FredokaOne
-RefreshButton.TextSize = 20
+RefreshButton.TextSize = 11
 RefreshButton.TextScaled = true
 RefreshButton.AutoButtonColor = false
 RefreshButton.BorderSizePixel = 0
 RefreshButton.Parent = Frame
 
-ThemeButton.Size = UDim2.new(0, 75, 0, 42)
-ThemeButton.Position = UDim2.new(0, 185, 0, 280)
-ThemeButton.Text = "C • THEME"
+ThemeButton.Size = UDim2.new(0.2, -8, 0.1, 0)
+ThemeButton.Position = UDim2.new(0.47, 0, 0.62, 0)
+ThemeButton.Text = "C • Theme"
 ThemeButton.Font = Enum.Font.FredokaOne
-ThemeButton.TextSize = 20
+ThemeButton.TextSize = 11
 ThemeButton.TextScaled = true
 ThemeButton.AutoButtonColor = false
 ThemeButton.BorderSizePixel = 0
 ThemeButton.Parent = Frame
 
-SupportButton.Size = UDim2.new(0, 75, 0, 42)
-SupportButton.Position = UDim2.new(0, 270, 0, 280)
-SupportButton.Text = "Support Mode"
+SupportButton.Size = UDim2.new(0.2, -8, 0.1, 0)
+SupportButton.Position = UDim2.new(0.705, 0, 0.62, 0)
+SupportButton.Text = "V • Support"
 SupportButton.Font = Enum.Font.FredokaOne
-SupportButton.TextSize = 20
+SupportButton.TextSize = 11
 SupportButton.TextScaled = true
 SupportButton.AutoButtonColor = false
 SupportButton.BorderSizePixel = 0
 SupportButton.Parent = Frame
 
 -- Second Row - Wild Only Button
-WildOnlyButton.Size = UDim2.new(0, 330, 0, 42)
-WildOnlyButton.Position = UDim2.new(0, 15, 0, 330)
+WildOnlyButton.Size = UDim2.new(1, -30, 0.1, 0)
+WildOnlyButton.Position = UDim2.new(0, 15, 0.74, 0)
 WildOnlyButton.Text = "WILD ONLY MODE: OFF"
 WildOnlyButton.Font = Enum.Font.FredokaOne
-WildOnlyButton.TextSize = 16
-WildOnlyButton.TextScaled = false
+WildOnlyButton.TextSize = 12
+WildOnlyButton.TextScaled = true
 WildOnlyButton.AutoButtonColor = false
 WildOnlyButton.BorderSizePixel = 0
 WildOnlyButton.Parent = Frame
