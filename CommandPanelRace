@@ -195,23 +195,30 @@ end
 local function GetCPFolder()
 	local races = workspace:FindFirstChild("Races")
 	if not races then return nil end
-	local race = races:FindFirstChild(RACE_NAME)
-	if not race then return nil end
-	return race:FindFirstChild("Checkpoints")
+	local race1 = races:FindFirstChild("Race1")
+	if not race1 then return nil end
+	
+	local racesFolder = race1:FindFirstChild("Races")
+	if not racesFolder then return nil end
+	
+	for _, folder in pairs(racesFolder:GetChildren()) do
+		if folder:IsA("Folder") and folder.Name:match("^Race1_") then
+			local checkpointsIntValue = folder:FindFirstChild("Checkpoints")
+			if checkpointsIntValue then
+				return checkpointsIntValue
+			end
+		end
+	end
+	return nil
 end
 
--- Find specific checkpoint by number
 local function FindCP(num)
 	local folder = GetCPFolder()
 	if not folder then return nil end
 	
-	for _, v in pairs(folder:GetChildren()) do
-		if v:IsA("BasePart") then
-			local cpNum = tonumber(v.Name:match("%d+"))
-			if cpNum == num then
-				return v
-			end
-		end
+	local part = folder:FindFirstChild(tostring(num))
+	if part and part:IsA("BasePart") then
+		return part
 	end
 	return nil
 end
@@ -1086,9 +1093,9 @@ end)
 
 Notify("🏁 Loaded!", "Type .help for commands")
 print("========================================")
-print("🏁 AUTO RACE SCRIPT LOADED (v1.0 FIXED)")
+print("AUTO RACE SCRIPT LOADED (v1.01 New System)")
 print("Commands: .start .stop .tp .progress .delete .help")
-print("✅ Car spawns 50 studs behind checkpoint")
-print("✅ Car faces FORWARD for manual driving")
-print("💎 Premium & 👑 Owner effects enabled!")
+print("Settings are set, Loading Map.")
+print("✅Finished, Preparing setup. And uh yo enjoy bro free forever !")
+print("💎 Premium users will always be our top Favourited people! @1sulo is out. Enjoy!")
 print("========================================")
