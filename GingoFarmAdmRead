@@ -217,7 +217,7 @@ local function createUI()
     titleLabel.Size = UDim2.new(0.9, 0, 0.12, 0)
     titleLabel.BackgroundTransparency = 1
     titleLabel.Font = Enum.Font.FredokaOne
-    titleLabel.Text = "AUTOFARM"
+    titleLabel.Text = "Sulo's AUTOFARM"
     titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
     titleLabel.TextScaled = true
     titleLabel.TextXAlignment = Enum.TextXAlignment.Center
