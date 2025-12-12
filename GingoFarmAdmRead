@@ -1,0 +1,563 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local isRunning = false
+local connection
+local lastTeleportTime = 0
+local TELEPORT_COOLDOWN = 1.5
+local isDragging = false
+
+local function playSound(soundId)
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://" .. soundId
+    sound.Volume = 0.5
+    sound.Parent = game:GetService("SoundService")
+    sound:Play()
+    sound.Ended:Connect(function()
+        sound:Destroy()
+    end)
+end
+
+local function ownsShirt(userId, shirtId)
+    local success, result = pcall(function()
+        return MarketplaceService:PlayerOwnsAsset(userId, shirtId)
+    end)
+    return success and result
+end
+
+local function showNotification(text)
+    local notifGui = Instance.new("ScreenGui")
+    notifGui.Name = "NotificationGui"
+    notifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    notifGui.Parent = playerGui
+
+    local notifFrame = Instance.new("Frame")
+    notifFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    notifFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    notifFrame.Size = UDim2.new(0, 0, 0, 0)
+    notifFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+    notifFrame.BorderSizePixel = 0
+    notifFrame.Parent = notifGui
+
+    local notifCorner = Instance.new("UICorner")
+    notifCorner.CornerRadius = UDim.new(0, 16)
+    notifCorner.Parent = notifFrame
+
+    local notifStroke = Instance.new("UIStroke")
+    notifStroke.Color = Color3.fromRGB(100, 150, 255)
+    notifStroke.Thickness = 3
+    notifStroke.Parent = notifFrame
+
+    local notifGradient = Instance.new("UIGradient")
+    notifGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 80)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(30, 30, 50))
+    }
+    notifGradient.Rotation = 45
+    notifGradient.Parent = notifFrame
+
+    local notifLabel = Instance.new("TextLabel")
+    notifLabel.Size = UDim2.new(0.9, 0, 0.8, 0)
+    notifLabel.Position = UDim2.new(0.05, 0, 0.1, 0)
+    notifLabel.BackgroundTransparency = 1
+    notifLabel.Font = Enum.Font.FredokaOne
+    notifLabel.Text = text
+    notifLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    notifLabel.TextScaled = true
+    notifLabel.TextWrapped = true
+    notifLabel.Parent = notifFrame
+
+    local labelGradient = Instance.new("UIGradient")
+    labelGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 200, 255)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(100, 180, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 200, 255))
+    }
+    labelGradient.Parent = notifLabel
+
+    local gradientTween = TweenService:Create(labelGradient, TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
+    gradientTween:Play()
+
+    notifFrame:TweenSize(UDim2.new(0.4, 0, 0.15, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
+
+    task.wait(4)
+
+    notifFrame:TweenSize(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.In, Enum.EasingStyle.Back, 0.3, true)
+    task.wait(0.3)
+    notifGui:Destroy()
+end
+
+local function makeDraggable(frame, dragHint)
+    local dragging
+    local dragInput
+    local dragStart
+    local startPos
+
+    local function update(input)
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            isDragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+
+            dragHint.Text = "Stop holding"
+            dragHint.TextColor3 = Color3.fromRGB(255, 255, 255)
+            
+            local holdGradient = Instance.new("UIGradient")
+            holdGradient.Color = ColorSequence.new{
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 100, 100)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 150, 100)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 100, 100))
+            }
+            holdGradient.Parent = dragHint
+            
+            local holdTween = TweenService:Create(holdGradient, TweenInfo.new(1.5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
+            holdTween:Play()
+
+            TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.21, 0, 0.33, 0)}):Play()
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    isDragging = false
+                    
+                    dragHint.Text = "Hold to drag frame"
+                    dragHint.TextColor3 = Color3.fromRGB(150, 150, 150)
+                    
+                    for _, child in pairs(dragHint:GetChildren()) do
+                        if child:IsA("UIGradient") then
+                            child:Destroy()
+                        end
+                    end
+
+                    TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.22, 0, 0.35, 0)}):Play()
+                end
+            end)
+        end
+    end)
+
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            update(input)
+        end
+    end)
+end
+
+local function createUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "AutofarmUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = playerGui
+
+    local statusIndicator = Instance.new("Frame")
+    statusIndicator.Name = "StatusIndicator"
+    statusIndicator.Position = UDim2.new(0.01, 0, 0.4, 0)
+    statusIndicator.Size = UDim2.new(0.008, 0, 0.1, 0)
+    statusIndicator.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    statusIndicator.BorderSizePixel = 0
+    statusIndicator.Parent = screenGui
+
+    local indicatorCorner = Instance.new("UICorner")
+    indicatorCorner.CornerRadius = UDim.new(0.5, 0)
+    indicatorCorner.Parent = statusIndicator
+
+    local indicatorGlow = Instance.new("UIStroke")
+    indicatorGlow.Color = Color3.fromRGB(255, 100, 100)
+    indicatorGlow.Thickness = 2
+    indicatorGlow.Transparency = 0.5
+    indicatorGlow.Parent = statusIndicator
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Position = UDim2.new(0.02, 0, 0.35, 0)
+    mainFrame.Size = UDim2.new(0, 0, 0, 0)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = screenGui
+
+    local uiCorner = Instance.new("UICorner")
+    uiCorner.CornerRadius = UDim.new(0, 20)
+    uiCorner.Parent = mainFrame
+
+    local uiStroke = Instance.new("UIStroke")
+    uiStroke.Color = Color3.fromRGB(100, 150, 255)
+    uiStroke.Thickness = 3
+    uiStroke.Transparency = 0.3
+    uiStroke.Parent = mainFrame
+
+    local gradient = Instance.new("UIGradient")
+    gradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(40, 40, 65)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 25, 40))
+    }
+    gradient.Rotation = 135
+    gradient.Parent = mainFrame
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Position = UDim2.new(0.05, 0, 0.05, 0)
+    titleLabel.Size = UDim2.new(0.9, 0, 0.12, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Font = Enum.Font.FredokaOne
+    titleLabel.Text = "AUTOFARM"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.TextScaled = true
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Center
+    titleLabel.Parent = mainFrame
+
+    local titleGradient = Instance.new("UIGradient")
+    titleGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(150, 200, 255)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 150, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 200, 255))
+    }
+    titleGradient.Parent = titleLabel
+
+    local titleTween = TweenService:Create(titleGradient, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
+    titleTween:Play()
+
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Name = "StatusLabel"
+    statusLabel.Position = UDim2.new(0.05, 0, 0.2, 0)
+    statusLabel.Size = UDim2.new(0.9, 0, 0.1, 0)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Font = Enum.Font.FredokaOne
+    statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    statusLabel.TextScaled = true
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
+    statusLabel.Parent = mainFrame
+
+    local statusGradient = Instance.new("UIGradient")
+    statusGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 100)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 150, 100)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 200, 100))
+    }
+    statusGradient.Parent = statusLabel
+
+    local statusTween = TweenService:Create(statusGradient, TweenInfo.new(2.5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
+    statusTween:Play()
+
+    local playerStatusLabel = Instance.new("TextLabel")
+    playerStatusLabel.Name = "PlayerStatusLabel"
+    playerStatusLabel.Position = UDim2.new(0.05, 0, 0.33, 0)
+    playerStatusLabel.Size = UDim2.new(0.9, 0, 0.08, 0)
+    playerStatusLabel.BackgroundTransparency = 1
+    playerStatusLabel.Font = Enum.Font.FredokaOne
+    playerStatusLabel.TextScaled = true
+    playerStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+    playerStatusLabel.Parent = mainFrame
+
+    local isPremium = ownsShirt(player.UserId, 132268448125497)
+    
+    if isPremium then
+        playerStatusLabel.Text = player.Name .. " is premium"
+        local premiumGradient = Instance.new("UIGradient")
+        premiumGradient.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 200, 255)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(50, 150, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 200, 255))
+        }
+        premiumGradient.Parent = playerStatusLabel
+        
+        local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1)
+        local tween = TweenService:Create(premiumGradient, tweenInfo, {Offset = Vector2.new(1, 0)})
+        tween:Play()
+    else
+        playerStatusLabel.Text = player.Name .. " is default"
+        playerStatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+    end
+
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Name = "ToggleButton"
+    toggleButton.Position = UDim2.new(0.1, 0, 0.5, 0)
+    toggleButton.Size = UDim2.new(0.8, 0, 0.18, 0)
+    toggleButton.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+    toggleButton.Font = Enum.Font.FredokaOne
+    toggleButton.Text = "START"
+    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleButton.TextScaled = true
+    toggleButton.BorderSizePixel = 0
+    toggleButton.Parent = mainFrame
+
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 14)
+    buttonCorner.Parent = toggleButton
+
+    local buttonStroke = Instance.new("UIStroke")
+    buttonStroke.Color = Color3.fromRGB(80, 220, 80)
+    buttonStroke.Thickness = 2
+    buttonStroke.Transparency = 0.5
+    buttonStroke.Parent = toggleButton
+
+    local purchaseButton = Instance.new("TextButton")
+    purchaseButton.Name = "PurchaseButton"
+    purchaseButton.Position = UDim2.new(0.1, 0, 0.72, 0)
+    purchaseButton.Size = UDim2.new(0.8, 0, 0.15, 0)
+    purchaseButton.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+    purchaseButton.Font = Enum.Font.FredokaOne
+    purchaseButton.Text = "Purchase Premium"
+    purchaseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    purchaseButton.TextScaled = true
+    purchaseButton.BorderSizePixel = 0
+    purchaseButton.Parent = mainFrame
+
+    local purchaseCorner = Instance.new("UICorner")
+    purchaseCorner.CornerRadius = UDim.new(0, 14)
+    purchaseCorner.Parent = purchaseButton
+
+    local purchaseStroke = Instance.new("UIStroke")
+    purchaseStroke.Color = Color3.fromRGB(150, 180, 255)
+    purchaseStroke.Thickness = 2
+    purchaseStroke.Transparency = 0.5
+    purchaseStroke.Parent = purchaseButton
+
+    local dragHint = Instance.new("TextLabel")
+    dragHint.Name = "DragHint"
+    dragHint.Position = UDim2.new(0.05, 0, 0.9, 0)
+    dragHint.Size = UDim2.new(0.9, 0, 0.08, 0)
+    dragHint.BackgroundTransparency = 1
+    dragHint.Font = Enum.Font.FredokaOne
+    dragHint.Text = "Hold to drag frame"
+    dragHint.TextColor3 = Color3.fromRGB(150, 150, 150)
+    dragHint.TextScaled = true
+    dragHint.TextXAlignment = Enum.TextXAlignment.Center
+    dragHint.Parent = mainFrame
+
+    toggleButton.MouseEnter:Connect(function()
+        if not isDragging then
+            TweenService:Create(toggleButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.1, 0, 0.48, 0)}):Play()
+        end
+    end)
+
+    toggleButton.MouseLeave:Connect(function()
+        if not isDragging then
+            TweenService:Create(toggleButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.1, 0, 0.5, 0)}):Play()
+        end
+    end)
+
+    purchaseButton.MouseEnter:Connect(function()
+        if not isDragging then
+            TweenService:Create(purchaseButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.1, 0, 0.70, 0)}):Play()
+        end
+    end)
+
+    purchaseButton.MouseLeave:Connect(function()
+        if not isDragging then
+            TweenService:Create(purchaseButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.1, 0, 0.72, 0)}):Play()
+        end
+    end)
+
+    makeDraggable(mainFrame, dragHint)
+
+    mainFrame:TweenSize(UDim2.new(0.22, 0, 0.35, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
+
+    return screenGui, mainFrame, statusLabel, toggleButton, statusIndicator, purchaseButton
+end
+
+local function getCharacter()
+    local playerCharacters = workspace:FindFirstChild("PlayerCharacters")
+    if playerCharacters then
+        return playerCharacters:FindFirstChild(player.Name)
+    end
+    return nil
+end
+
+local function getMainMap()
+    local interiors = workspace:FindFirstChild("Interiors")
+    if interiors then
+        return interiors:FindFirstChild("MainMap!Christmas")
+    end
+    return nil
+end
+
+local function getAllGingerbreadRigs(mainMap)
+    local rigs = {}
+    for _, descendant in ipairs(mainMap:GetDescendants()) do
+        if descendant:IsA("Model") and descendant.Name == "GingerbreadRig" then
+            table.insert(rigs, descendant)
+        end
+    end
+    return rigs
+end
+
+local function getGingerbreadPile(mainMap)
+    for _, descendant in ipairs(mainMap:GetDescendants()) do
+        if descendant:IsA("Model") and descendant.Name == "GingerbreadPileSmall" then
+            return descendant
+        end
+    end
+    return nil
+end
+
+local function teleportToPosition(character, position)
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        character.HumanoidRootPart.CFrame = CFrame.new(position)
+        print("Teleported to: " .. tostring(position))
+    end
+end
+
+local function startAutofarm()
+    print("Autofarm started")
+    
+    connection = RunService.Heartbeat:Connect(function()
+        if not isRunning then return end
+        
+        local currentTime = tick()
+        if currentTime - lastTeleportTime < TELEPORT_COOLDOWN then
+            return
+        end
+        
+        local character = getCharacter()
+        local mainMap = getMainMap()
+        
+        if not character or not mainMap then
+            return
+        end
+        
+        local gingerbreadRigs = getAllGingerbreadRigs(mainMap)
+        
+        if #gingerbreadRigs > 0 then
+            local characterPos = character:FindFirstChild("HumanoidRootPart") and character.HumanoidRootPart.Position or Vector3.new(0, 0, 0)
+            
+            table.sort(gingerbreadRigs, function(a, b)
+                local posA = a:GetPivot().Position
+                local posB = b:GetPivot().Position
+                return (posA - characterPos).Magnitude < (posB - characterPos).Magnitude
+            end)
+            
+            local targetRig = gingerbreadRigs[1]
+            local targetPos = targetRig:GetPivot().Position
+            teleportToPosition(character, targetPos)
+            lastTeleportTime = currentTime
+        else
+            local pile = getGingerbreadPile(mainMap)
+            if pile then
+                local pilePos = pile:GetPivot().Position
+                teleportToPosition(character, pilePos)
+            else
+                teleportToPosition(character, Vector3.new(-286.8505859375, 24.1502685546875, -1625.8896484375))
+            end
+            lastTeleportTime = currentTime
+        end
+    end)
+end
+
+local function stopAutofarm()
+    print("Autofarm stopped")
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+end
+
+local gui, frame, statusLabel, toggleButton, statusIndicator, purchaseButton = createUI()
+
+local mainMapFound = false
+
+local function updateStatus()
+    local mainMap = getMainMap()
+    
+    if not mainMap then
+        if mainMapFound then
+            playSound(2390695935)
+            mainMapFound = false
+        end
+        statusLabel.Text = "Go to MainMap"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        statusIndicator.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+        statusIndicator:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(255, 100, 100)
+        toggleButton.Visible = true
+    else
+        if not mainMapFound then
+            playSound(136993031050456)
+            mainMapFound = true
+        end
+        
+        if isRunning then
+            statusLabel.Text = "Running..."
+            statusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+            statusIndicator.BackgroundColor3 = Color3.fromRGB(100, 255, 150)
+            statusIndicator:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(100, 255, 150)
+        else
+            statusLabel.Text = "Ready to Run!"
+            statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+            statusIndicator.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+            statusIndicator:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(255, 165, 0)
+        end
+    end
+end
+
+updateStatus()
+
+toggleButton.MouseButton1Click:Connect(function()
+    playSound(6895079853)
+    
+    if not getMainMap() then
+        statusLabel.Text = "Go to MainMap"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        return
+    end
+    
+    isRunning = not isRunning
+    
+    local clickTween = TweenService:Create(toggleButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.75, 0, 0.16, 0)})
+    clickTween:Play()
+    clickTween.Completed:Wait()
+    
+    local releaseTween = TweenService:Create(toggleButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.8, 0, 0.18, 0)})
+    releaseTween:Play()
+    
+    if isRunning then
+        toggleButton.Text = "STOP"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+        toggleButton:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(255, 80, 80)
+        startAutofarm()
+    else
+        toggleButton.Text = "START"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+        toggleButton:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(80, 220, 80)
+        stopAutofarm()
+    end
+    
+    updateStatus()
+end)
+
+purchaseButton.MouseButton1Click:Connect(function()
+    playSound(6895079853)
+    
+    local clickTween = TweenService:Create(purchaseButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.75, 0, 0.13, 0)})
+    clickTween:Play()
+    clickTween.Completed:Wait()
+    
+    local releaseTween = TweenService:Create(purchaseButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.8, 0, 0.15, 0)})
+    releaseTween:Play()
+    
+    setclipboard("https://www.roblox.com/catalog/132268448125497")
+    print("Premium shirt link copied to clipboard")
+    showNotification("CTRL + V or Paste the link in your browser to buy support")
+end)
+
+RunService.Heartbeat:Connect(function()
+    updateStatus()
+end)
+
+print("UI initialized successfully")
