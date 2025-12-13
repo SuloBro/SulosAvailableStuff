@@ -1,0 +1,612 @@
+-- Roblox Coin Autofarm Script with Premium UI
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Configuration
+local SUPPORTER_SHIRT_ID = 132268448125497
+local SHIRT_LINK = "https://www.roblox.com/catalog/" .. SUPPORTER_SHIRT_ID
+local FARM_ANIMATION_ID = 137704682075613
+local farmActive = false
+local coinsCollected = 0
+local megaCoinsCollected = 0
+local farmAnimation = nil
+local animTrack = nil
+
+-- Check if player is supporter
+local function isSupporter()
+    local char = player.Character or player.CharacterAdded:Wait()
+    local shirt = char:FindFirstChildOfClass("Shirt")
+    if shirt then
+        local shirtId = tonumber(shirt.ShirtTemplate:match("%d+"))
+        return shirtId == SUPPORTER_SHIRT_ID
+    end
+    return false
+end
+
+-- Create ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CoinFarmGui"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = playerGui
+
+-- Main Frame with modern glass morphism design
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 400, 0, 480)
+mainFrame.Position = UDim2.new(0.5, -200, 0.5, -240)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+mainFrame.BackgroundTransparency = 0.15
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 20)
+mainCorner.Parent = mainFrame
+
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(100, 100, 255)
+mainStroke.Thickness = 3
+mainStroke.Transparency = 0.5
+mainStroke.Parent = mainFrame
+
+-- Animated gradient stroke
+local strokeGradient = Instance.new("UIGradient")
+strokeGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(138, 43, 226)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 191, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(138, 43, 226))
+}
+strokeGradient.Parent = mainStroke
+
+spawn(function()
+    while wait(0.03) do
+        strokeGradient.Rotation = (strokeGradient.Rotation + 1) % 360
+    end
+end)
+
+-- Glass effect overlay
+local glassEffect = Instance.new("Frame")
+glassEffect.Size = UDim2.new(1, 0, 1, 0)
+glassEffect.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+glassEffect.BackgroundTransparency = 0.95
+glassEffect.BorderSizePixel = 0
+glassEffect.ZIndex = 0
+glassEffect.Parent = mainFrame
+
+local glassCorner = Instance.new("UICorner")
+glassCorner.CornerRadius = UDim.new(0, 20)
+glassCorner.Parent = glassEffect
+
+-- Animated background gradient
+local bgGradient = Instance.new("UIGradient")
+bgGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(25, 25, 45)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(15, 15, 35)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 25, 45))
+}
+bgGradient.Rotation = 45
+bgGradient.Parent = mainFrame
+
+-- Header Section
+local headerFrame = Instance.new("Frame")
+headerFrame.Size = UDim2.new(1, -40, 0, 80)
+headerFrame.Position = UDim2.new(0, 20, 0, 15)
+headerFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 35)
+headerFrame.BackgroundTransparency = 0.3
+headerFrame.BorderSizePixel = 0
+headerFrame.Parent = mainFrame
+
+local headerCorner = Instance.new("UICorner")
+headerCorner.CornerRadius = UDim.new(0, 15)
+headerCorner.Parent = headerFrame
+
+local headerStroke = Instance.new("UIStroke")
+headerStroke.Color = Color3.fromRGB(80, 80, 150)
+headerStroke.Thickness = 1
+headerStroke.Transparency = 0.6
+headerStroke.Parent = headerFrame
+
+-- Title Label
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -20, 0, 35)
+titleLabel.Position = UDim2.new(0, 10, 0, 8)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "COIN AUTOFARM"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.Font = Enum.Font.FredokaOne
+titleLabel.TextSize = 26
+titleLabel.TextXAlignment = Enum.TextXAlignment.Center
+titleLabel.Parent = headerFrame
+
+local titleGradient = Instance.new("UIGradient")
+titleGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(138, 43, 226)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 191, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(138, 43, 226))
+}
+titleGradient.Parent = titleLabel
+
+spawn(function()
+    while wait(0.05) do
+        titleGradient.Offset = Vector2.new(math.sin(tick() * 2) * 0.5, 0)
+    end
+end)
+
+-- Player Name Label
+local playerNameLabel = Instance.new("TextLabel")
+playerNameLabel.Size = UDim2.new(1, -20, 0, 28)
+playerNameLabel.Position = UDim2.new(0, 10, 0, 45)
+playerNameLabel.BackgroundTransparency = 1
+playerNameLabel.Text = player.Name
+playerNameLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+playerNameLabel.Font = Enum.Font.FredokaOne
+playerNameLabel.TextSize = 16
+playerNameLabel.TextXAlignment = Enum.TextXAlignment.Center
+playerNameLabel.Parent = headerFrame
+
+-- Supporter Diamond Effect
+if isSupporter() then
+    playerNameLabel.Text = "PREMIUM " .. player.Name
+    playerNameLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+    
+    local diamondGradient = Instance.new("UIGradient")
+    diamondGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 215, 0)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 150)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 215, 0))
+    }
+    diamondGradient.Parent = playerNameLabel
+    
+    spawn(function()
+        while wait(0.05) do
+            diamondGradient.Offset = Vector2.new(math.sin(tick() * 2) * 0.4, 0)
+        end
+    end)
+end
+
+-- Stats Container
+local statsContainer = Instance.new("Frame")
+statsContainer.Size = UDim2.new(1, -40, 0, 150)
+statsContainer.Position = UDim2.new(0, 20, 0, 110)
+statsContainer.BackgroundColor3 = Color3.fromRGB(20, 20, 35)
+statsContainer.BackgroundTransparency = 0.3
+statsContainer.BorderSizePixel = 0
+statsContainer.Parent = mainFrame
+
+local statsCorner = Instance.new("UICorner")
+statsCorner.CornerRadius = UDim.new(0, 15)
+statsCorner.Parent = statsContainer
+
+local statsStroke = Instance.new("UIStroke")
+statsStroke.Color = Color3.fromRGB(80, 80, 150)
+statsStroke.Thickness = 1
+statsStroke.Transparency = 0.6
+statsStroke.Parent = statsContainer
+
+-- Basic Coins Label
+local basicCoinsLabel = Instance.new("TextLabel")
+basicCoinsLabel.Size = UDim2.new(1, -20, 0, 40)
+basicCoinsLabel.Position = UDim2.new(0, 10, 0, 20)
+basicCoinsLabel.BackgroundTransparency = 1
+basicCoinsLabel.Text = "Basic Coins Collected: 0"
+basicCoinsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+basicCoinsLabel.Font = Enum.Font.FredokaOne
+basicCoinsLabel.TextSize = 20
+basicCoinsLabel.TextXAlignment = Enum.TextXAlignment.Left
+basicCoinsLabel.Parent = statsContainer
+
+local basicGradient = Instance.new("UIGradient")
+basicGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 50)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 150, 0)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 200, 50))
+}
+basicGradient.Parent = basicCoinsLabel
+
+spawn(function()
+    while wait(0.05) do
+        basicGradient.Offset = Vector2.new(math.sin(tick() * 1.5) * 0.3, 0)
+    end
+end)
+
+-- Mega Coins Label
+local megaCoinsLabel = Instance.new("TextLabel")
+megaCoinsLabel.Size = UDim2.new(1, -20, 0, 40)
+megaCoinsLabel.Position = UDim2.new(0, 10, 0, 75)
+megaCoinsLabel.BackgroundTransparency = 1
+megaCoinsLabel.Text = "OP Coins Collected: 0"
+megaCoinsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+megaCoinsLabel.Font = Enum.Font.FredokaOne
+megaCoinsLabel.TextSize = 20
+megaCoinsLabel.TextXAlignment = Enum.TextXAlignment.Left
+megaCoinsLabel.Parent = statsContainer
+
+local megaGradient = Instance.new("UIGradient")
+megaGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 50, 255)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(200, 50, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 50, 255))
+}
+megaGradient.Parent = megaCoinsLabel
+
+spawn(function()
+    while wait(0.05) do
+        megaGradient.Offset = Vector2.new(math.sin(tick() * 1.5 + 1) * 0.3, 0)
+    end
+end)
+
+-- Divider
+local divider = Instance.new("Frame")
+divider.Size = UDim2.new(1, -20, 0, 2)
+divider.Position = UDim2.new(0, 10, 0, 65)
+divider.BackgroundColor3 = Color3.fromRGB(100, 100, 180)
+divider.BackgroundTransparency = 0.5
+divider.BorderSizePixel = 0
+divider.Parent = statsContainer
+
+-- Status Label
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -20, 0, 30)
+statusLabel.Position = UDim2.new(0, 10, 0, 125)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Status: Idle"
+statusLabel.TextColor3 = Color3.fromRGB(150, 150, 180)
+statusLabel.Font = Enum.Font.FredokaOne
+statusLabel.TextSize = 16
+statusLabel.TextXAlignment = Enum.TextXAlignment.Center
+statusLabel.Parent = statsContainer
+
+-- Start/Stop Button
+local startButton = Instance.new("TextButton")
+startButton.Size = UDim2.new(1, -40, 0, 55)
+startButton.Position = UDim2.new(0, 20, 0, 275)
+startButton.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+startButton.BorderSizePixel = 0
+startButton.Text = "START FARMING"
+startButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+startButton.Font = Enum.Font.FredokaOne
+startButton.TextSize = 22
+startButton.Parent = mainFrame
+
+local startCorner = Instance.new("UICorner")
+startCorner.CornerRadius = UDim.new(0, 15)
+startCorner.Parent = startButton
+
+local startStroke = Instance.new("UIStroke")
+startStroke.Color = Color3.fromRGB(100, 255, 150)
+startStroke.Thickness = 2
+startStroke.Parent = startButton
+
+local startGradient = Instance.new("UIGradient")
+startGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 220, 120)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(30, 180, 90))
+}
+startGradient.Rotation = 90
+startGradient.Parent = startButton
+
+-- Purchase Premium Button
+local premiumButton = Instance.new("TextButton")
+premiumButton.Size = UDim2.new(1, -40, 0, 50)
+premiumButton.Position = UDim2.new(0, 20, 0, 345)
+premiumButton.BackgroundColor3 = Color3.fromRGB(200, 50, 200)
+premiumButton.BorderSizePixel = 0
+premiumButton.Text = "PURCHASE PREMIUM"
+premiumButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+premiumButton.Font = Enum.Font.FredokaOne
+premiumButton.TextSize = 18
+premiumButton.Parent = mainFrame
+
+local premiumCorner = Instance.new("UICorner")
+premiumCorner.CornerRadius = UDim.new(0, 15)
+premiumCorner.Parent = premiumButton
+
+local premiumStroke = Instance.new("UIStroke")
+premiumStroke.Color = Color3.fromRGB(255, 100, 255)
+premiumStroke.Thickness = 2
+premiumStroke.Parent = premiumButton
+
+local premiumGradient = Instance.new("UIGradient")
+premiumGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(220, 70, 220)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 40, 180))
+}
+premiumGradient.Rotation = 90
+premiumGradient.Parent = premiumButton
+
+-- Drag Info Label
+local dragLabel = Instance.new("TextLabel")
+dragLabel.Size = UDim2.new(1, 0, 0, 40)
+dragLabel.Position = UDim2.new(0, 0, 1, -40)
+dragLabel.BackgroundTransparency = 1
+dragLabel.Text = "Hold to drag"
+dragLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
+dragLabel.Font = Enum.Font.FredokaOne
+dragLabel.TextSize = 13
+dragLabel.Parent = mainFrame
+
+-- Notification Frame
+local notifFrame = Instance.new("Frame")
+notifFrame.Size = UDim2.new(0, 450, 0, 120)
+notifFrame.Position = UDim2.new(0.5, -225, 0.5, -60)
+notifFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 35)
+notifFrame.BorderSizePixel = 0
+notifFrame.Visible = false
+notifFrame.Parent = screenGui
+
+local notifCorner = Instance.new("UICorner")
+notifCorner.CornerRadius = UDim.new(0, 15)
+notifCorner.Parent = notifFrame
+
+local notifStroke = Instance.new("UIStroke")
+notifStroke.Color = Color3.fromRGB(100, 255, 100)
+notifStroke.Thickness = 3
+notifStroke.Parent = notifFrame
+
+local notifLabel = Instance.new("TextLabel")
+notifLabel.Size = UDim2.new(1, -20, 1, -20)
+notifLabel.Position = UDim2.new(0, 10, 0, 10)
+notifLabel.BackgroundTransparency = 1
+notifLabel.Text = "Link Copied, Paste it in your browser to view the shirt or just simply do CTRL + V in search"
+notifLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+notifLabel.Font = Enum.Font.FredokaOne
+notifLabel.TextSize = 16
+notifLabel.TextWrapped = true
+notifLabel.Parent = notifFrame
+
+-- Button Hover Effects
+startButton.MouseEnter:Connect(function()
+    TweenService:Create(startButton, TweenInfo.new(0.2), {
+        Size = UDim2.new(1, -35, 0, 57),
+        BackgroundColor3 = farmActive and Color3.fromRGB(230, 70, 70) or Color3.fromRGB(70, 220, 130)
+    }):Play()
+end)
+
+startButton.MouseLeave:Connect(function()
+    TweenService:Create(startButton, TweenInfo.new(0.2), {
+        Size = UDim2.new(1, -40, 0, 55),
+        BackgroundColor3 = farmActive and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(50, 200, 100)
+    }):Play()
+end)
+
+premiumButton.MouseEnter:Connect(function()
+    TweenService:Create(premiumButton, TweenInfo.new(0.2), {
+        Size = UDim2.new(1, -35, 0, 52),
+        BackgroundColor3 = Color3.fromRGB(220, 70, 220)
+    }):Play()
+end)
+
+premiumButton.MouseLeave:Connect(function()
+    TweenService:Create(premiumButton, TweenInfo.new(0.2), {
+        Size = UDim2.new(1, -40, 0, 50),
+        BackgroundColor3 = Color3.fromRGB(200, 50, 200)
+    }):Play()
+end)
+
+-- Click Effects
+startButton.MouseButton1Down:Connect(function()
+    TweenService:Create(startButton, TweenInfo.new(0.1), {Size = UDim2.new(1, -45, 0, 53)}):Play()
+end)
+
+startButton.MouseButton1Up:Connect(function()
+    TweenService:Create(startButton, TweenInfo.new(0.1), {Size = UDim2.new(1, -40, 0, 55)}):Play()
+end)
+
+-- Premium Button Click
+premiumButton.MouseButton1Click:Connect(function()
+    setclipboard(SHIRT_LINK)
+    
+    notifFrame.Visible = true
+    notifFrame.Size = UDim2.new(0, 0, 0, 0)
+    notifFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    
+    TweenService:Create(notifFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
+        Size = UDim2.new(0, 450, 0, 120),
+        Position = UDim2.new(0.5, -225, 0.5, -60)
+    }):Play()
+    
+    wait(4)
+    
+    TweenService:Create(notifFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
+        Size = UDim2.new(0, 0, 0, 0),
+        Position = UDim2.new(0.5, 0, 0.5, 0)
+    }):Play()
+    
+    wait(0.3)
+    notifFrame.Visible = false
+end)
+
+-- Draggable System
+local dragging = false
+local dragInput, mousePos, framePos
+
+local function updateDrag(input)
+    local delta = input.Position - mousePos
+    local newPos = UDim2.new(
+        framePos.X.Scale,
+        framePos.X.Offset + delta.X,
+        framePos.Y.Scale,
+        framePos.Y.Offset + delta.Y
+    )
+    TweenService:Create(mainFrame, TweenInfo.new(0.1), {Position = newPos}):Play()
+end
+
+mainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        mousePos = input.Position
+        framePos = mainFrame.Position
+        
+        TweenService:Create(mainFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, 380, 0, 460)}):Play()
+        dragLabel.Text = "Stop Holding"
+        
+        local redGradient = Instance.new("UIGradient")
+        redGradient.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 50, 50)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 100, 100)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 50, 50))
+        }
+        redGradient.Parent = dragLabel
+        
+        spawn(function()
+            while dragging do
+                redGradient.Offset = Vector2.new(math.sin(tick() * 5) * 0.5, 0)
+                wait(0.03)
+            end
+            redGradient:Destroy()
+        end)
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                TweenService:Create(mainFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, 400, 0, 480)}):Play()
+                dragLabel.Text = "Hold to drag"
+            end
+        end)
+    end
+end)
+
+mainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input == dragInput then
+        updateDrag(input)
+    end
+end)
+
+-- Animation Functions
+local function playFarmAnimation()
+    local char = player.Character
+    if char then
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            farmAnimation = Instance.new("Animation")
+            farmAnimation.AnimationId = "rbxassetid://" .. FARM_ANIMATION_ID
+            animTrack = humanoid:LoadAnimation(farmAnimation)
+            animTrack.Looped = true
+            animTrack:Play()
+        end
+    end
+end
+
+local function stopFarmAnimation()
+    if animTrack then
+        animTrack:Stop()
+        animTrack = nil
+    end
+    if farmAnimation then
+        farmAnimation:Destroy()
+        farmAnimation = nil
+    end
+end
+
+-- Coin Collection Function
+local function collectCoin(coin)
+    if coin and coin:IsA("BasePart") then
+        local char = player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local hrp = char.HumanoidRootPart
+            
+            -- Move to coin position
+            hrp.CFrame = coin.CFrame
+            wait(0.25)
+            
+            -- Move forward slightly
+            hrp.CFrame = coin.CFrame * CFrame.new(0, 0, -2)
+            wait(0.2)
+            
+            -- Move backward slightly
+            hrp.CFrame = coin.CFrame * CFrame.new(0, 0, 2)
+            wait(0.2)
+            
+            -- Return to coin center
+            hrp.CFrame = coin.CFrame
+            wait(0.25)
+            
+            if coin.Name == "Coins" then
+                coinsCollected = coinsCollected + 1
+                basicCoinsLabel.Text = "Basic Coins Collected: " .. coinsCollected
+            elseif coin.Name == "MegaCoins" then
+                megaCoinsCollected = megaCoinsCollected + 1
+                megaCoinsLabel.Text = "OP Coins Collected: " .. megaCoinsCollected
+            end
+            
+            -- Wait before next coin
+            wait(0.3)
+        end
+    end
+end
+
+-- Farm Loop
+local function startFarming()
+    farmActive = true
+    statusLabel.Text = "Status: Farming..."
+    statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+    
+    playFarmAnimation()
+    
+    while farmActive do
+        local workspace = game:GetService("Workspace")
+        local interactions = workspace:FindFirstChild("Interactions")
+        
+        if interactions then
+            local nodes = interactions:FindFirstChild("Nodes")
+            if nodes then
+                local currencyNodes = nodes:FindFirstChild("CurrencyNodes")
+                if currencyNodes then
+                    for _, coin in pairs(currencyNodes:GetChildren()) do
+                        if not farmActive then break end
+                        if coin.Name == "Coins" or coin.Name == "MegaCoins" then
+                            collectCoin(coin)
+                        end
+                    end
+                end
+            end
+        end
+        
+        wait(0.5)
+    end
+end
+
+local function stopFarming()
+    farmActive = false
+    statusLabel.Text = "Status: Idle"
+    statusLabel.TextColor3 = Color3.fromRGB(150, 150, 180)
+    
+    stopFarmAnimation()
+end
+
+-- Start Button Click Handler
+startButton.MouseButton1Click:Connect(function()
+    if not farmActive then
+        startButton.Text = "STOP FARMING"
+        startButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        startGradient.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(220, 70, 70)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 40, 40))
+        }
+        
+        spawn(startFarming)
+    else
+        startButton.Text = "START FARMING"
+        startButton.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
+        startGradient.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 220, 120)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(30, 180, 90))
+        }
+        
+        stopFarming()
+    end
+end)
+
+print("Coin Autofarm loaded successfully!")
