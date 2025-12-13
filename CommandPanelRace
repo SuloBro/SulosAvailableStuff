@@ -252,7 +252,7 @@ local function GetCar()
 	return nil
 end
 
--- Teleport to queue
+-- Teleport to queue (Tp fixed @1sulo)
 local function TPQueue()
 	local success, err = pcall(function()
 		local playerGui = player:FindFirstChild("PlayerGui")
@@ -313,55 +313,57 @@ local function TPQueue()
 			return 
 		end
 		
-		print("Found teleport button! Making visible...")
+		print("Found teleport button! Clicking it now...")
 		
-		tpButton.Visible = true
-		wait(0.5)
-		
-		print("Attempting to click button...")
-		
-		local clicked = false
-		for i = 1, 3 do
-			pcall(function()
-				for _, connection in pairs(getconnections(tpButton.MouseButton1Click)) do
-					connection:Fire()
-					clicked = true
-				end
-			end)
-			
-			if clicked then
-				print("Button clicked via direct method!")
-				break
-			end
-			wait(0.1)
-		end
-		
-		if not clicked then
+		-- METHOD 1: VirtualInputManager (Most reliable for GUI buttons)
+		pcall(function()
 			local VirtualInputManager = game:GetService("VirtualInputManager")
 			local buttonPos = tpButton.AbsolutePosition
 			local buttonSize = tpButton.AbsoluteSize
-			local clickX = buttonPos.X + (buttonSize.X / 2)
-			local clickY = buttonPos.Y + (buttonSize.Y / 2)
+			local centerX = buttonPos.X + (buttonSize.X / 2)
+			local centerY = buttonPos.Y + (buttonSize.Y / 2)
 			
-			for i = 1, 2 do
-				VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, true, game, 0)
-				wait(0.1)
-				VirtualInputManager:SendMouseButtonEvent(clickX, clickY, 0, false, game, 0)
-				wait(0.1)
+			VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, true, game, 0)
+			task.wait(0.05)
+			VirtualInputManager:SendMouseButtonEvent(centerX, centerY, 0, false, game, 0)
+			print("✅ Method 1: VirtualInput clicked!")
+		end)
+		
+		wait(0.1)
+		
+		-- METHOD 2: Fire all connections
+		pcall(function()
+			for _, connection in pairs(getconnections(tpButton.MouseButton1Click)) do
+				connection:Fire()
 			end
-			print("Button clicked via VirtualInput method!")
-		end
+			for _, connection in pairs(getconnections(tpButton.MouseButton1Down)) do
+				connection:Fire()
+			end
+			for _, connection in pairs(getconnections(tpButton.Activated)) do
+				connection:Fire()
+			end
+			print("✅ Method 2: Connections fired!")
+		end)
 		
-		wait(0.3)
-		Notify("✅ Teleported", "Teleport activated!")
+		-- METHOD 3: Fire signals directly
+		pcall(function()
+			firesignal(tpButton.MouseButton1Click)
+			firesignal(tpButton.Activated)
+			print("✅ Method 3: Signals fired!")
+		end)
 		
-		spawn(function()
-			wait(3)
-			if tpButton and tpButton.Parent then
-				tpButton.Visible = false
-				print("Button hidden again")
+		-- METHOD 4: Direct activation
+		pcall(function()
+			if tpButton:IsA("GuiButton") then
+				tpButton.Activated:Fire()
+				print("✅ Method 4: Direct activation!")
 			end
 		end)
+		
+		wait(0.2)
+		Notify("✅ Teleported", "Teleport activated!")
+		print("🎉 Teleport complete!")
+		
 	end)
 	
 	if not success then
@@ -538,9 +540,10 @@ local function DeleteScript()
 		if not container2 then return end
 		
 		local tpButton = container2:FindFirstChild("Teleport")
-		if tpButton and tpButton:IsA("ImageButton") then
-			tpButton.Visible = true
-		end
+if tpButton and tpButton:IsA("ImageButton") then
+    -- Button stays visible, we'll just click it programmatically
+    print("✅ Correcting button @1sulo")
+end
 		
 		local label = container2:FindFirstChild("Label")
 		if label and label:IsA("TextLabel") then
@@ -1076,10 +1079,11 @@ pcall(function()
 	local container2 = race1:FindFirstChild("Container")
 	if not container2 then return end
 	
-	local tpButton = container2:FindFirstChild("Teleport")
-	if tpButton and tpButton:IsA("ImageButton") then
-		tpButton.Visible = false
-	end
+local tpButton = container2:FindFirstChild("Teleport")
+		if tpButton and tpButton:IsA("ImageButton") then
+			-- Button was never hidden, so no need to restore it
+			print("Teleport button cleanup - no action needed")
+		end
 	
 	local label = container2:FindFirstChild("Label")
 	if label and label:IsA("TextLabel") then
