@@ -3,6 +3,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -12,6 +13,12 @@ local connection
 local lastTeleportTime = 0
 local TELEPORT_COOLDOWN = 1.5
 local isDragging = false
+local isAdjustingSpeed = false
+local currentRating = 0
+
+local WEBHOOK_URL = "https://discordapp.com/api/webhooks/1324265546266710056/o9QNbrRXT1sLpBUzMDpYHKomJz87VDiviLwoBSTOARhKUYwto8ozU50rpFs7c488xjo6"
+local NO_VOTE_IMAGE = "rbxassetid://15142565460"
+local VOTE_IMAGE = "rbxassetid://95139082764448"
 
 local function playSound(soundId)
     local sound = Instance.new("Sound")
@@ -31,6 +38,30 @@ local function ownsShirt(userId, shirtId)
     return success and result
 end
 
+local function getThumbnail(userId)
+    return "https://www.roblox.com/headshot?userId=" .. userId .. "&width=420&height=420&format=png"
+end
+
+local function sendWebhook(username, userId, rating)
+    local success, err = pcall(function()
+        local payload = {
+            username = "Autofarm Ratings",
+            embeds = {{
+                title = "New Rating Received!",
+                color = 3447003,
+                fields = {
+                    {name = "Username", value = username, inline = true},
+                    {name = "User ID", value = tostring(userId), inline = true},
+                    {name = "Rating", value = rating .. " star" .. (rating > 1 and "s" or ""), inline = false}
+                },
+                thumbnail = {url = getThumbnail(userId)}
+            }}
+        }
+        local jsonPayload = HttpService:JSONEncode(payload)
+        HttpService:PostAsync(WEBHOOK_URL, jsonPayload, Enum.HttpContentType.ApplicationJson)
+    end)
+end
+
 local function showNotification(text)
     local notifGui = Instance.new("ScreenGui")
     notifGui.Name = "NotificationGui"
@@ -38,20 +69,20 @@ local function showNotification(text)
     notifGui.Parent = playerGui
 
     local notifFrame = Instance.new("Frame")
-    notifFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    notifFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-    notifFrame.Size = UDim2.new(0, 0, 0, 0)
+    notifFrame.AnchorPoint = Vector2.new(0.5, 1)
+    notifFrame.Position = UDim2.new(0.5, 0, 1.1, 0)
+    notifFrame.Size = UDim2.new(0.22, 0, 0.07, 0)
     notifFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
     notifFrame.BorderSizePixel = 0
     notifFrame.Parent = notifGui
 
     local notifCorner = Instance.new("UICorner")
-    notifCorner.CornerRadius = UDim.new(0, 16)
+    notifCorner.CornerRadius = UDim.new(0, 12)
     notifCorner.Parent = notifFrame
 
     local notifStroke = Instance.new("UIStroke")
     notifStroke.Color = Color3.fromRGB(100, 150, 255)
-    notifStroke.Thickness = 3
+    notifStroke.Thickness = 2
     notifStroke.Parent = notifFrame
 
     local notifGradient = Instance.new("UIGradient")
@@ -63,8 +94,7 @@ local function showNotification(text)
     notifGradient.Parent = notifFrame
 
     local notifLabel = Instance.new("TextLabel")
-    notifLabel.Size = UDim2.new(0.9, 0, 0.8, 0)
-    notifLabel.Position = UDim2.new(0.05, 0, 0.1, 0)
+    notifLabel.Size = UDim2.new(1, 0, 1, 0)
     notifLabel.BackgroundTransparency = 1
     notifLabel.Font = Enum.Font.FredokaOne
     notifLabel.Text = text
@@ -81,15 +111,15 @@ local function showNotification(text)
     }
     labelGradient.Parent = notifLabel
 
-    local gradientTween = TweenService:Create(labelGradient, TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
+    local gradientTween = TweenService:Create(labelGradient, TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Rotation = 360})
     gradientTween:Play()
 
-    notifFrame:TweenSize(UDim2.new(0.4, 0, 0.15, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
+    notifFrame:TweenPosition(UDim2.new(0.5, 0, 0.93, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.35, true)
 
-    task.wait(4)
+    task.wait(3.5)
 
-    notifFrame:TweenSize(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.In, Enum.EasingStyle.Back, 0.3, true)
-    task.wait(0.3)
+    notifFrame:TweenPosition(UDim2.new(0.5, 0, 1.15, 0), Enum.EasingDirection.In, Enum.EasingStyle.Quad, 0.35, true)
+    task.wait(0.35)
     notifGui:Destroy()
 end
 
@@ -105,7 +135,7 @@ local function makeDraggable(frame, dragHint)
     end
 
     frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and not isAdjustingSpeed then
             dragging = true
             isDragging = true
             dragStart = input.Position
@@ -122,10 +152,10 @@ local function makeDraggable(frame, dragHint)
             }
             holdGradient.Parent = dragHint
             
-            local holdTween = TweenService:Create(holdGradient, TweenInfo.new(1.5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
+            local holdTween = TweenService:Create(holdGradient, TweenInfo.new(1.5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Rotation = 360})
             holdTween:Play()
 
-            TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.21, 0, 0.33, 0)}):Play()
+            TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.26, 0, 0.4, 0)}):Play()
 
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
@@ -141,7 +171,7 @@ local function makeDraggable(frame, dragHint)
                         end
                     end
 
-                    TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.22, 0, 0.35, 0)}):Play()
+                    TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.24, 0, 0.38, 0)}):Play()
                 end
             end)
         end
@@ -160,19 +190,142 @@ local function makeDraggable(frame, dragHint)
     end)
 end
 
+local function createShowcaseUI(onLoadCallback)
+    local showcaseGui = Instance.new("ScreenGui")
+    showcaseGui.Name = "ShowcaseUI"
+    showcaseGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    showcaseGui.Parent = playerGui
+
+    local showcaseFrame = Instance.new("Frame")
+    showcaseFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    showcaseFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    showcaseFrame.Size = UDim2.new(0, 0, 0, 0)
+    showcaseFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+    showcaseFrame.BorderSizePixel = 0
+    showcaseFrame.Parent = showcaseGui
+
+    local showcaseCorner = Instance.new("UICorner")
+    showcaseCorner.CornerRadius = UDim.new(0, 24)
+    showcaseCorner.Parent = showcaseFrame
+
+    local showcaseStroke = Instance.new("UIStroke")
+    showcaseStroke.Color = Color3.fromRGB(100, 150, 255)
+    showcaseStroke.Thickness = 4
+    showcaseStroke.Transparency = 0.2
+    showcaseStroke.Parent = showcaseFrame
+
+    local showcaseGradient = Instance.new("UIGradient")
+    showcaseGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(45, 45, 70)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(25, 25, 40))
+    }
+    showcaseGradient.Rotation = 135
+    showcaseGradient.Parent = showcaseFrame
+
+    local showcaseTitle = Instance.new("TextLabel")
+    showcaseTitle.Position = UDim2.new(0.05, 0, 0.08, 0)
+    showcaseTitle.Size = UDim2.new(0.9, 0, 0.15, 0)
+    showcaseTitle.BackgroundTransparency = 1
+    showcaseTitle.Font = Enum.Font.FredokaOne
+    showcaseTitle.Text = "Hey, Just so you know"
+    showcaseTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    showcaseTitle.TextScaled = true
+    showcaseTitle.Parent = showcaseFrame
+
+    local titleGradient = Instance.new("UIGradient")
+    titleGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 150, 150)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 150, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 150, 150))
+    }
+    titleGradient.Parent = showcaseTitle
+
+    local titleTween = TweenService:Create(titleGradient, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Rotation = 360})
+    titleTween:Play()
+
+    local showcaseDesc = Instance.new("TextLabel")
+    showcaseDesc.Position = UDim2.new(0.08, 0, 0.28, 0)
+    showcaseDesc.Size = UDim2.new(0.84, 0, 0.4, 0)
+    showcaseDesc.BackgroundTransparency = 1
+    showcaseDesc.Font = Enum.Font.FredokaOne
+    showcaseDesc.Text = "Speedy auto race is being worked on, it might take some time before the script gets updated again. Ive added new features to this script including way better PREMIUM performances !"
+    showcaseDesc.TextColor3 = Color3.fromRGB(200, 200, 220)
+    showcaseDesc.TextScaled = true
+    showcaseDesc.TextWrapped = true
+    showcaseDesc.Parent = showcaseFrame
+
+    local loadButton = Instance.new("TextButton")
+    loadButton.Position = UDim2.new(0.15, 0, 0.73, 0)
+    loadButton.Size = UDim2.new(0.7, 0, 0.18, 0)
+    loadButton.BackgroundColor3 = Color3.fromRGB(80, 200, 120)
+    loadButton.BorderSizePixel = 0
+    loadButton.Font = Enum.Font.FredokaOne
+    loadButton.Text = "Load Script"
+    loadButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    loadButton.TextScaled = true
+    loadButton.Parent = showcaseFrame
+
+    local loadCorner = Instance.new("UICorner")
+    loadCorner.CornerRadius = UDim.new(0, 16)
+    loadCorner.Parent = loadButton
+
+    local loadStroke = Instance.new("UIStroke")
+    loadStroke.Color = Color3.fromRGB(120, 255, 180)
+    loadStroke.Thickness = 3
+    loadStroke.Transparency = 0.3
+    loadStroke.Parent = loadButton
+
+    local loadGradient = Instance.new("UIGradient")
+    loadGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 255, 150)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(80, 200, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 255, 150))
+    }
+    loadGradient.Parent = loadButton
+
+    local loadGradientTween = TweenService:Create(loadGradient, TweenInfo.new(2.5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Rotation = 360})
+    loadGradientTween:Play()
+
+    loadButton.MouseEnter:Connect(function()
+        TweenService:Create(loadButton, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.75, 0, 0.2, 0)}):Play()
+    end)
+
+    loadButton.MouseLeave:Connect(function()
+        TweenService:Create(loadButton, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.7, 0, 0.18, 0)}):Play()
+    end)
+
+    loadButton.MouseButton1Click:Connect(function()
+        playSound(6895079853)
+        
+        local clickTween = TweenService:Create(loadButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.65, 0, 0.16, 0)})
+        clickTween:Play()
+        clickTween.Completed:Wait()
+        
+        showcaseFrame:TweenSize(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.In, Enum.EasingStyle.Back, 0.4, true)
+        task.wait(0.5)
+        showcaseGui:Destroy()
+        
+        onLoadCallback()
+    end)
+
+    showcaseFrame:TweenSize(UDim2.new(0.5, 0, 0.45, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.6, true)
+end
+
 local function createUI()
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "AutofarmUI"
     screenGui.ResetOnSpawn = false
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Enabled = false
     screenGui.Parent = playerGui
 
     local statusIndicator = Instance.new("Frame")
     statusIndicator.Name = "StatusIndicator"
-    statusIndicator.Position = UDim2.new(0.01, 0, 0.4, 0)
-    statusIndicator.Size = UDim2.new(0.008, 0, 0.1, 0)
+    statusIndicator.Position = UDim2.new(0.5, 0, -0.05, 0)
+    statusIndicator.Size = UDim2.new(0.01, 0, 0.12, 0)
     statusIndicator.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
     statusIndicator.BorderSizePixel = 0
+    statusIndicator.Rotation = 90
     statusIndicator.Parent = screenGui
 
     local indicatorCorner = Instance.new("UICorner")
@@ -187,7 +340,7 @@ local function createUI()
 
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    mainFrame.Position = UDim2.new(0.02, 0, 0.35, 0)
+    mainFrame.Position = UDim2.new(0.02, 0, 0.3, 0)
     mainFrame.Size = UDim2.new(0, 0, 0, 0)
     mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
     mainFrame.BorderSizePixel = 0
@@ -213,8 +366,8 @@ local function createUI()
 
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Name = "TitleLabel"
-    titleLabel.Position = UDim2.new(0.05, 0, 0.05, 0)
-    titleLabel.Size = UDim2.new(0.9, 0, 0.12, 0)
+    titleLabel.Position = UDim2.new(0.05, 0, 0.03, 0)
+    titleLabel.Size = UDim2.new(0.9, 0, 0.08, 0)
     titleLabel.BackgroundTransparency = 1
     titleLabel.Font = Enum.Font.FredokaOne
     titleLabel.Text = "Sulo's AUTOFARM"
@@ -231,13 +384,13 @@ local function createUI()
     }
     titleGradient.Parent = titleLabel
 
-    local titleTween = TweenService:Create(titleGradient, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
+    local titleTween = TweenService:Create(titleGradient, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Rotation = 360})
     titleTween:Play()
 
     local statusLabel = Instance.new("TextLabel")
     statusLabel.Name = "StatusLabel"
-    statusLabel.Position = UDim2.new(0.05, 0, 0.2, 0)
-    statusLabel.Size = UDim2.new(0.9, 0, 0.1, 0)
+    statusLabel.Position = UDim2.new(0.05, 0, 0.13, 0)
+    statusLabel.Size = UDim2.new(0.9, 0, 0.08, 0)
     statusLabel.BackgroundTransparency = 1
     statusLabel.Font = Enum.Font.FredokaOne
     statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -253,18 +406,37 @@ local function createUI()
     }
     statusGradient.Parent = statusLabel
 
-    local statusTween = TweenService:Create(statusGradient, TweenInfo.new(2.5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
+    local statusTween = TweenService:Create(statusGradient, TweenInfo.new(2.5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Rotation = 360})
     statusTween:Play()
 
+    local playerStatusContainer = Instance.new("Frame")
+    playerStatusContainer.Position = UDim2.new(0.05, 0, 0.23, 0)
+    playerStatusContainer.Size = UDim2.new(0.9, 0, 0.1, 0)
+    playerStatusContainer.BackgroundTransparency = 1
+    playerStatusContainer.Parent = mainFrame
+
+    local profileIcon = Instance.new("ImageLabel")
+    profileIcon.AnchorPoint = Vector2.new(0, 0.5)
+    profileIcon.Position = UDim2.new(0, 0, 0.5, 0)
+    profileIcon.Size = UDim2.new(0.12, 0, 1, 0)
+    profileIcon.BackgroundTransparency = 1
+    profileIcon.Image = getThumbnail(player.UserId)
+    profileIcon.ScaleType = Enum.ScaleType.Crop
+    profileIcon.Parent = playerStatusContainer
+
+    local profileCorner = Instance.new("UICorner")
+    profileCorner.CornerRadius = UDim.new(0.5, 0)
+    profileCorner.Parent = profileIcon
+
     local playerStatusLabel = Instance.new("TextLabel")
-    playerStatusLabel.Name = "PlayerStatusLabel"
-    playerStatusLabel.Position = UDim2.new(0.05, 0, 0.33, 0)
-    playerStatusLabel.Size = UDim2.new(0.9, 0, 0.08, 0)
+    playerStatusLabel.AnchorPoint = Vector2.new(0, 0.5)
+    playerStatusLabel.Position = UDim2.new(0.15, 0, 0.5, 0)
+    playerStatusLabel.Size = UDim2.new(0.8, 0, 1, 0)
     playerStatusLabel.BackgroundTransparency = 1
     playerStatusLabel.Font = Enum.Font.FredokaOne
     playerStatusLabel.TextScaled = true
-    playerStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
-    playerStatusLabel.Parent = mainFrame
+    playerStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    playerStatusLabel.Parent = playerStatusContainer
 
     local isPremium = ownsShirt(player.UserId, 132268448125497)
     
@@ -279,17 +451,138 @@ local function createUI()
         premiumGradient.Parent = playerStatusLabel
         
         local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1)
-        local tween = TweenService:Create(premiumGradient, tweenInfo, {Offset = Vector2.new(1, 0)})
+        local tween = TweenService:Create(premiumGradient, tweenInfo, {Rotation = 360})
         tween:Play()
     else
         playerStatusLabel.Text = player.Name .. " is default"
         playerStatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
     end
 
+    local speedControlFrame = Instance.new("Frame")
+    speedControlFrame.Position = UDim2.new(0.05, 0, 0.35, 0)
+    speedControlFrame.Size = UDim2.new(0.9, 0, 0.12, 0)
+    speedControlFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+    speedControlFrame.BorderSizePixel = 0
+    speedControlFrame.Parent = mainFrame
+
+    local speedCorner = Instance.new("UICorner")
+    speedCorner.CornerRadius = UDim.new(0, 12)
+    speedCorner.Parent = speedControlFrame
+
+    local speedStroke = Instance.new("UIStroke")
+    speedStroke.Color = isPremium and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(80, 80, 100)
+    speedStroke.Thickness = 2
+    speedStroke.Transparency = 0.4
+    speedStroke.Parent = speedControlFrame
+
+    local speedLabel = Instance.new("TextLabel")
+    speedLabel.Position = UDim2.new(0.05, 0, 0.1, 0)
+    speedLabel.Size = UDim2.new(0.35, 0, 0.4, 0)
+    speedLabel.BackgroundTransparency = 1
+    speedLabel.Font = Enum.Font.FredokaOne
+    speedLabel.Text = "Speed:"
+    speedLabel.TextColor3 = isPremium and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(100, 100, 120)
+    speedLabel.TextScaled = true
+    speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    speedLabel.Parent = speedControlFrame
+
+    local speedSlider = Instance.new("Frame")
+    speedSlider.Position = UDim2.new(0.05, 0, 0.6, 0)
+    speedSlider.Size = UDim2.new(0.65, 0, 0.3, 0)
+    speedSlider.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    speedSlider.BorderSizePixel = 0
+    speedSlider.Parent = speedControlFrame
+
+    local sliderCorner = Instance.new("UICorner")
+    sliderCorner.CornerRadius = UDim.new(1, 0)
+    sliderCorner.Parent = speedSlider
+
+    local speedFill = Instance.new("Frame")
+    speedFill.Size = UDim2.new(0, 0, 1, 0)
+    speedFill.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+    speedFill.BorderSizePixel = 0
+    speedFill.Parent = speedSlider
+
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(1, 0)
+    fillCorner.Parent = speedFill
+
+    local speedHandle = Instance.new("Frame")
+    speedHandle.AnchorPoint = Vector2.new(0.5, 0.5)
+    speedHandle.Position = UDim2.new(0, 0, 0.5, 0)
+    speedHandle.Size = UDim2.new(0.08, 0, 2, 0)
+    speedHandle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    speedHandle.BorderSizePixel = 0
+    speedHandle.Parent = speedSlider
+
+    local handleCorner = Instance.new("UICorner")
+    handleCorner.CornerRadius = UDim.new(1, 0)
+    handleCorner.Parent = speedHandle
+
+    local handleStroke = Instance.new("UIStroke")
+    handleStroke.Color = Color3.fromRGB(100, 200, 255)
+    handleStroke.Thickness = 2
+    handleStroke.Parent = speedHandle
+
+    local speedValueLabel = Instance.new("TextLabel")
+    speedValueLabel.Position = UDim2.new(0.73, 0, 0.1, 0)
+    speedValueLabel.Size = UDim2.new(0.22, 0, 0.4, 0)
+    speedValueLabel.BackgroundTransparency = 1
+    speedValueLabel.Font = Enum.Font.FredokaOne
+    speedValueLabel.Text = "1.5s"
+    speedValueLabel.TextColor3 = isPremium and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(100, 100, 120)
+    speedValueLabel.TextScaled = true
+    speedValueLabel.TextXAlignment = Enum.TextXAlignment.Center
+    speedValueLabel.Parent = speedControlFrame
+
+    if not isPremium then
+        local lockIcon = Instance.new("ImageLabel")
+        lockIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+        lockIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+        lockIcon.Size = UDim2.new(0.3, 0, 0.5, 0)
+        lockIcon.BackgroundTransparency = 1
+        lockIcon.Image = "rbxassetid://6031082533"
+        lockIcon.ScaleType = Enum.ScaleType.Fit
+        lockIcon.ImageColor3 = Color3.fromRGB(150, 150, 170)
+        lockIcon.Parent = speedControlFrame
+    else
+        local draggingSlider = false
+        
+        speedHandle.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                draggingSlider = true
+                isAdjustingSpeed = true
+            end
+        end)
+        
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                draggingSlider = false
+                isAdjustingSpeed = false
+            end
+        end)
+        
+        UserInputService.InputChanged:Connect(function(input)
+            if draggingSlider and input.UserInputType == Enum.UserInputType.MouseMovement then
+                local mousePos = UserInputService:GetMouseLocation()
+                local sliderPos = speedSlider.AbsolutePosition
+                local sliderSize = speedSlider.AbsoluteSize
+                
+                local relativeX = math.clamp((mousePos.X - sliderPos.X) / sliderSize.X, 0, 1)
+                
+                speedHandle.Position = UDim2.new(relativeX, 0, 0.5, 0)
+                speedFill.Size = UDim2.new(relativeX, 0, 1, 0)
+                
+                TELEPORT_COOLDOWN = 1.5 + (relativeX * 3.5)
+                speedValueLabel.Text = string.format("%.1fs", TELEPORT_COOLDOWN)
+            end
+        end)
+    end
+
     local toggleButton = Instance.new("TextButton")
     toggleButton.Name = "ToggleButton"
-    toggleButton.Position = UDim2.new(0.1, 0, 0.5, 0)
-    toggleButton.Size = UDim2.new(0.8, 0, 0.18, 0)
+    toggleButton.Position = UDim2.new(0.08, 0, 0.5, 0)
+    toggleButton.Size = UDim2.new(0.84, 0, 0.14, 0)
     toggleButton.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
     toggleButton.Font = Enum.Font.FredokaOne
     toggleButton.Text = "START"
@@ -310,8 +603,8 @@ local function createUI()
 
     local purchaseButton = Instance.new("TextButton")
     purchaseButton.Name = "PurchaseButton"
-    purchaseButton.Position = UDim2.new(0.1, 0, 0.72, 0)
-    purchaseButton.Size = UDim2.new(0.8, 0, 0.15, 0)
+    purchaseButton.Position = UDim2.new(0.08, 0, 0.66, 0)
+    purchaseButton.Size = UDim2.new(0.62, 0, 0.12, 0)
     purchaseButton.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
     purchaseButton.Font = Enum.Font.FredokaOne
     purchaseButton.Text = "Purchase Premium"
@@ -330,9 +623,179 @@ local function createUI()
     purchaseStroke.Transparency = 0.5
     purchaseStroke.Parent = purchaseButton
 
+    local rateButton = Instance.new("ImageButton")
+    rateButton.Name = "RateButton"
+    rateButton.Position = UDim2.new(0.75, 0, 0.66, 0)
+    rateButton.Size = UDim2.new(0.17, 0, 0.12, 0)
+    rateButton.BackgroundTransparency = 1
+    rateButton.Image = "rbxassetid://136726015674427"
+    rateButton.ScaleType = Enum.ScaleType.Fit
+    rateButton.Parent = mainFrame
+
+    local rateFrame = Instance.new("Frame")
+    rateFrame.Name = "RateFrame"
+    rateFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    rateFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    rateFrame.Size = UDim2.new(0, 0, 0, 0)
+    rateFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+    rateFrame.BorderSizePixel = 0
+    rateFrame.Visible = false
+    rateFrame.ZIndex = 10
+    rateFrame.Parent = screenGui
+
+    local rateCorner = Instance.new("UICorner")
+    rateCorner.CornerRadius = UDim.new(0, 20)
+    rateCorner.Parent = rateFrame
+
+    local rateStroke = Instance.new("UIStroke")
+    rateStroke.Color = Color3.fromRGB(255, 200, 100)
+    rateStroke.Thickness = 3
+    rateStroke.Transparency = 0.3
+    rateStroke.Parent = rateFrame
+
+    local rateGradient = Instance.new("UIGradient")
+    rateGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(45, 45, 70)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(30, 30, 50))
+    }
+    rateGradient.Rotation = 90
+    rateGradient.Parent = rateFrame
+
+    local rateTitle = Instance.new("TextLabel")
+    rateTitle.Position = UDim2.new(0.1, 0, 0.1, 0)
+    rateTitle.Size = UDim2.new(0.8, 0, 0.2, 0)
+    rateTitle.BackgroundTransparency = 1
+    rateTitle.Font = Enum.Font.FredokaOne
+    rateTitle.Text = "Rate This Script!"
+    rateTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    rateTitle.TextScaled = true
+    rateTitle.Parent = rateFrame
+
+    local rateTitleGradient = Instance.new("UIGradient")
+    rateTitleGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 100)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 150, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 200, 100))
+    }
+    rateTitleGradient.Parent = rateTitle
+
+    local rateTitleTween = TweenService:Create(rateTitleGradient, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Rotation = 360})
+    rateTitleTween:Play()
+
+    local starsFrame = Instance.new("Frame")
+    starsFrame.Position = UDim2.new(0.1, 0, 0.4, 0)
+    starsFrame.Size = UDim2.new(0.8, 0, 0.3, 0)
+    starsFrame.BackgroundTransparency = 1
+    starsFrame.Parent = rateFrame
+
+    local starsLayout = Instance.new("UIListLayout")
+    starsLayout.FillDirection = Enum.FillDirection.Horizontal
+    starsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    starsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    starsLayout.Padding = UDim.new(0.05, 0)
+    starsLayout.Parent = starsFrame
+
+    local stars = {}
+
+    for i = 1, 5 do
+        local star = Instance.new("ImageButton")
+        star.Name = "Star" .. i
+        star.Size = UDim2.new(0.15, 0, 0.8, 0)
+        star.BackgroundTransparency = 1
+        star.Image = NO_VOTE_IMAGE
+        star.ScaleType = Enum.ScaleType.Fit
+        star.Parent = starsFrame
+        stars[i] = star
+    end
+
+    local closeRateButton = Instance.new("TextButton")
+    closeRateButton.Position = UDim2.new(0.25, 0, 0.75, 0)
+    closeRateButton.Size = UDim2.new(0.5, 0, 0.15, 0)
+    closeRateButton.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    closeRateButton.Font = Enum.Font.FredokaOne
+    closeRateButton.Text = "Close"
+    closeRateButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeRateButton.TextScaled = true
+    closeRateButton.BorderSizePixel = 0
+    closeRateButton.Parent = rateFrame
+
+    local closeRateCorner = Instance.new("UICorner")
+    closeRateCorner.CornerRadius = UDim.new(0, 14)
+    closeRateCorner.Parent = closeRateButton
+
+    local function updateStarDisplay(rating)
+        for i = 1, 5 do
+            if i <= rating then
+                stars[i].Image = VOTE_IMAGE
+                TweenService:Create(stars[i], TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.18, 0, 0.9, 0)}):Play()
+                task.wait(0.05)
+                TweenService:Create(stars[i], TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.15, 0, 0.8, 0)}):Play()
+            else
+                stars[i].Image = NO_VOTE_IMAGE
+            end
+        end
+    end
+
+    for i, star in ipairs(stars) do
+        star.MouseButton1Click:Connect(function()
+            playSound(6895079853)
+            
+            if currentRating == i then
+                currentRating = i - 1
+            else
+                currentRating = i
+            end
+            
+            updateStarDisplay(currentRating)
+            
+            if currentRating > 0 then
+                showNotification("Thanks for rating " .. currentRating .. " star" .. (currentRating > 1 and "s" or "") .. "!")
+                sendWebhook(player.Name, player.UserId, currentRating)
+            end
+        end)
+        
+        star.MouseEnter:Connect(function()
+            TweenService:Create(star, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.18, 0, 0.9, 0)}):Play()
+        end)
+        
+        star.MouseLeave:Connect(function()
+            TweenService:Create(star, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.15, 0, 0.8, 0)}):Play()
+        end)
+    end
+
+    rateButton.MouseButton1Click:Connect(function()
+        playSound(6895079853)
+        
+        TweenService:Create(rateButton, TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.14, 0, 0.1, 0)}):Play()
+        task.wait(0.1)
+        TweenService:Create(rateButton, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.17, 0, 0.12, 0)}):Play()
+        
+        rateFrame.Visible = true
+        rateFrame:TweenSize(UDim2.new(0.35, 0, 0.4, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
+    end)
+
+    rateButton.MouseEnter:Connect(function()
+        if not isDragging then
+            TweenService:Create(rateButton, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.2, 0, 0.14, 0)}):Play()
+        end
+    end)
+
+    rateButton.MouseLeave:Connect(function()
+        if not isDragging then
+            TweenService:Create(rateButton, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.new(0.17, 0, 0.12, 0)}):Play()
+        end
+    end)
+
+    closeRateButton.MouseButton1Click:Connect(function()
+        playSound(6895079853)
+        rateFrame:TweenSize(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.In, Enum.EasingStyle.Back, 0.3, true)
+        task.wait(0.3)
+        rateFrame.Visible = false
+    end)
+
     local dragHint = Instance.new("TextLabel")
     dragHint.Name = "DragHint"
-    dragHint.Position = UDim2.new(0.05, 0, 0.9, 0)
+    dragHint.Position = UDim2.new(0.05, 0, 0.82, 0)
     dragHint.Size = UDim2.new(0.9, 0, 0.08, 0)
     dragHint.BackgroundTransparency = 1
     dragHint.Font = Enum.Font.FredokaOne
@@ -344,31 +807,31 @@ local function createUI()
 
     toggleButton.MouseEnter:Connect(function()
         if not isDragging then
-            TweenService:Create(toggleButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.1, 0, 0.48, 0)}):Play()
+            TweenService:Create(toggleButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.08, 0, 0.48, 0)}):Play()
         end
     end)
 
     toggleButton.MouseLeave:Connect(function()
         if not isDragging then
-            TweenService:Create(toggleButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.1, 0, 0.5, 0)}):Play()
+            TweenService:Create(toggleButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.08, 0, 0.5, 0)}):Play()
         end
     end)
 
     purchaseButton.MouseEnter:Connect(function()
         if not isDragging then
-            TweenService:Create(purchaseButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.1, 0, 0.70, 0)}):Play()
+            TweenService:Create(purchaseButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.08, 0, 0.64, 0)}):Play()
         end
     end)
 
     purchaseButton.MouseLeave:Connect(function()
         if not isDragging then
-            TweenService:Create(purchaseButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.1, 0, 0.72, 0)}):Play()
+            TweenService:Create(purchaseButton, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.08, 0, 0.66, 0)}):Play()
         end
     end)
 
     makeDraggable(mainFrame, dragHint)
 
-    mainFrame:TweenSize(UDim2.new(0.22, 0, 0.35, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
+    mainFrame:TweenSize(UDim2.new(0.24, 0, 0.38, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
 
     return screenGui, mainFrame, statusLabel, toggleButton, statusIndicator, purchaseButton
 end
@@ -411,13 +874,10 @@ end
 local function teleportToPosition(character, position)
     if character and character:FindFirstChild("HumanoidRootPart") then
         character.HumanoidRootPart.CFrame = CFrame.new(position)
-        print("Teleported to: " .. tostring(position))
     end
 end
 
 local function startAutofarm()
-    print("Autofarm started")
-    
     connection = RunService.Heartbeat:Connect(function()
         if not isRunning then return end
         
@@ -462,102 +922,101 @@ local function startAutofarm()
 end
 
 local function stopAutofarm()
-    print("Autofarm stopped")
     if connection then
         connection:Disconnect()
         connection = nil
     end
 end
 
-local gui, frame, statusLabel, toggleButton, statusIndicator, purchaseButton = createUI()
+createShowcaseUI(function()
+    local gui, frame, statusLabel, toggleButton, statusIndicator, purchaseButton = createUI()
+    gui.Enabled = true
 
-local mainMapFound = false
+    local mainMapFound = false
 
-local function updateStatus()
-    local mainMap = getMainMap()
-    
-    if not mainMap then
-        if mainMapFound then
-            playSound(2390695935)
-            mainMapFound = false
+    local function updateStatus()
+        local mainMap = getMainMap()
+        
+        if not mainMap then
+            if mainMapFound then
+                playSound(2390695935)
+                mainMapFound = false
+            end
+            statusLabel.Text = "Go to MainMap"
+            statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            statusIndicator.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+            statusIndicator:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(255, 100, 100)
+            toggleButton.Visible = true
+        else
+            if not mainMapFound then
+                playSound(136993031050456)
+                mainMapFound = true
+            end
+            
+            if isRunning then
+                statusLabel.Text = "Running..."
+                statusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+                statusIndicator.BackgroundColor3 = Color3.fromRGB(100, 255, 150)
+                statusIndicator:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(100, 255, 150)
+            else
+                statusLabel.Text = "Ready to Run!"
+                statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+                statusIndicator.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+                statusIndicator:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(255, 165, 0)
+            end
         end
-        statusLabel.Text = "Go to MainMap"
-        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-        statusIndicator.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
-        statusIndicator:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(255, 100, 100)
-        toggleButton.Visible = true
-    else
-        if not mainMapFound then
-            playSound(136993031050456)
-            mainMapFound = true
+    end
+
+    updateStatus()
+
+    toggleButton.MouseButton1Click:Connect(function()
+        playSound(6895079853)
+        
+        if not getMainMap() then
+            statusLabel.Text = "Go to MainMap"
+            statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            return
         end
         
+        isRunning = not isRunning
+        
+        local clickTween = TweenService:Create(toggleButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.75, 0, 0.12, 0)})
+        clickTween:Play()
+        clickTween.Completed:Wait()
+        
+        local releaseTween = TweenService:Create(toggleButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.84, 0, 0.14, 0)})
+        releaseTween:Play()
+        
         if isRunning then
-            statusLabel.Text = "Running..."
-            statusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-            statusIndicator.BackgroundColor3 = Color3.fromRGB(100, 255, 150)
-            statusIndicator:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(100, 255, 150)
+            toggleButton.Text = "STOP"
+            toggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+            toggleButton:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(255, 80, 80)
+            startAutofarm()
         else
-            statusLabel.Text = "Ready to Run!"
-            statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
-            statusIndicator.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
-            statusIndicator:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(255, 165, 0)
+            toggleButton.Text = "START"
+            toggleButton.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
+            toggleButton:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(80, 220, 80)
+            stopAutofarm()
         end
-    end
-end
+        
+        updateStatus()
+    end)
 
-updateStatus()
+    purchaseButton.MouseButton1Click:Connect(function()
+        playSound(6895079853)
+        
+        local clickTween = TweenService:Create(purchaseButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.58, 0, 0.1, 0)})
+        clickTween:Play()
+        clickTween.Completed:Wait()
+        
+        local releaseTween = TweenService:Create(purchaseButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.62, 0, 0.12, 0)})
+        releaseTween:Play()
+        
+        setclipboard("https://www.roblox.com/catalog/132268448125497")
+        showNotification("Link copied to clipboard!")
+    end)
 
-toggleButton.MouseButton1Click:Connect(function()
-    playSound(6895079853)
-    
-    if not getMainMap() then
-        statusLabel.Text = "Go to MainMap"
-        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-        return
-    end
-    
-    isRunning = not isRunning
-    
-    local clickTween = TweenService:Create(toggleButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.75, 0, 0.16, 0)})
-    clickTween:Play()
-    clickTween.Completed:Wait()
-    
-    local releaseTween = TweenService:Create(toggleButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.8, 0, 0.18, 0)})
-    releaseTween:Play()
-    
-    if isRunning then
-        toggleButton.Text = "STOP"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
-        toggleButton:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(255, 80, 80)
-        startAutofarm()
-    else
-        toggleButton.Text = "START"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(50, 180, 50)
-        toggleButton:FindFirstChildOfClass("UIStroke").Color = Color3.fromRGB(80, 220, 80)
-        stopAutofarm()
-    end
-    
-    updateStatus()
+    RunService.Heartbeat:Connect(function()
+        updateStatus()
+    end)
 end)
-
-purchaseButton.MouseButton1Click:Connect(function()
-    playSound(6895079853)
-    
-    local clickTween = TweenService:Create(purchaseButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.75, 0, 0.13, 0)})
-    clickTween:Play()
-    clickTween.Completed:Wait()
-    
-    local releaseTween = TweenService:Create(purchaseButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(0.8, 0, 0.15, 0)})
-    releaseTween:Play()
-    
-    setclipboard("https://www.roblox.com/catalog/132268448125497")
-    print("Premium shirt link copied to clipboard")
-    showNotification("CTRL + V or Paste the link in your browser to buy support")
-end)
-
-RunService.Heartbeat:Connect(function()
-    updateStatus()
-end)
-
-print("UI initialized successfully")
