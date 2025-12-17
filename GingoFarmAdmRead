@@ -408,7 +408,7 @@ local function createShowcaseUI(onLoadCallback)
     showcaseTitle.Size = UDim2.new(1, -60, 0, 40)
     showcaseTitle.BackgroundTransparency = 1
     showcaseTitle.Font = Enum.Font.FredokaOne
-    showcaseTitle.Text = "Script Update"
+    showcaseTitle.Text = "Update Information"
     showcaseTitle.TextColor3 = Color3.fromRGB(50, 50, 50)
     showcaseTitle.TextSize = 28
     showcaseTitle.TextXAlignment = Enum.TextXAlignment.Left
@@ -419,7 +419,7 @@ local function createShowcaseUI(onLoadCallback)
     showcaseDesc.Size = UDim2.new(1, -60, 0, 120)
     showcaseDesc.BackgroundTransparency = 1
     showcaseDesc.Font = Enum.Font.FredokaOne
-    showcaseDesc.Text = "Speedy auto race is being worked on. New features added including better PREMIUM performance!"
+    showcaseDesc.Text = "1.Speedy AUTO-Race is being worked on, so please be patient or donate for faster progress\n2.New Premium speed changer to auto collect gingerbreads\n3.New UI layout and better player view\n4.Player verification checker when hovering in username ( checks if is in group )"
     showcaseDesc.TextColor3 = Color3.fromRGB(100, 100, 100)
     showcaseDesc.TextSize = 16
     showcaseDesc.TextWrapped = true
@@ -576,7 +576,7 @@ local function createUI()
     local titleBg = Instance.new("ImageLabel")
     titleBg.Size = UDim2.new(1, 0, 1, 0)
     titleBg.BackgroundTransparency = 1
-    titleBg.Image = "rbxassetid://6048692831"
+    titleBg.Image = "rbxassetid://72742231764169"
     titleBg.ScaleType = Enum.ScaleType.Fit
     titleBg.ImageTransparency = 0.85
     titleBg.Parent = titleContainer
@@ -586,7 +586,7 @@ local function createUI()
     titleLabel.Size = UDim2.new(1, 0, 1, 0)
     titleLabel.BackgroundTransparency = 1
     titleLabel.Font = Enum.Font.FredokaOne
-    titleLabel.Text = "Gingerbreads auto farm"
+    titleLabel.Text = "Sulo's Gingerbread Farm"
     titleLabel.TextSize = 20
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.ZIndex = 2
@@ -806,7 +806,7 @@ local function createUI()
     speedLabel.Size = UDim2.new(0.5, -15, 0, 18)
     speedLabel.BackgroundTransparency = 1
     speedLabel.Font = Enum.Font.FredokaOne
-    speedLabel.Text = "Teleport Speed"
+    speedLabel.Text = "Gingerbread collection speed"
     speedLabel.TextColor3 = isPremium and Color3.fromRGB(50, 50, 50) or Color3.fromRGB(150, 150, 150)
     speedLabel.TextSize = 14
     speedLabel.TextXAlignment = Enum.TextXAlignment.Left
