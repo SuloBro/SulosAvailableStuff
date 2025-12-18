@@ -46,14 +46,35 @@ local function LoadTrialData()
             makefolder("AutofarmScript")
         end
         
+        -- Try to load user-specific file first (new format)
+        local userFile = "AutofarmScript/trial_" .. player.UserId .. ".json"
+        if isfile(userFile) then
+            local data = readfile(userFile)
+            local decoded = HttpService:JSONDecode(data)
+            if decoded and decoded.userId == player.UserId then
+                trialData = decoded
+                print("Loaded trial data from user-specific file")
+                return
+            end
+        end
+        
+        -- Fallback to old format
         if isfile("AutofarmScript/trial.json") then
             local data = readfile("AutofarmScript/trial.json")
             local decoded = HttpService:JSONDecode(data)
             if decoded and decoded.userId == player.UserId then
                 trialData = decoded
-                print("📂 Loaded trial data from storage")
+                print("Loaded trial data from old file format")
+                
+                -- Migrate to new format
+                local encoded = HttpService:JSONEncode(trialData)
+                writefile(userFile, encoded)
+                print("Migrated to new file format")
+                return
             end
         end
+        
+        print("No existing trial data found for user " .. player.UserId)
     end)
 end
 
@@ -66,10 +87,10 @@ local function SaveTrialData()
         
         trialData.userId = player.UserId
         local encoded = HttpService:JSONEncode(trialData)
-        writefile("AutofarmScript/trial.json", encoded)
-        print("💾 Saved trial data to storage")
         
-        AddToGlobalList()
+        -- Save to user-specific file
+        writefile("AutofarmScript/trial_" .. player.UserId .. ".json", encoded)
+        print("Saved trial data for user " .. player.UserId)
     end)
 end
 
@@ -111,7 +132,7 @@ local function MonitorTrialExpiration(screenGui)
                     stopAutofarm()
                 end
                 
-                showNotification("⏰ Trial Expired", "Reloading UI...")
+                showNotification("Trial Expired - Reloading UI...")
                 task.wait(2)
                 
                 -- Reload entire UI
@@ -210,68 +231,7 @@ local function FormatTime(seconds)
     return string.format("%d min - %d s", minutes, secs)
 end
 
--- Get all users who have trial data
-local function GetAllTrialUsers()
-    local users = {}
-    pcall(function()
-        if not isfolder("AutofarmScript") then
-            return
-        end
-        
-        if isfile("AutofarmScript/all_trials.json") then
-            local data = readfile("AutofarmScript/all_trials.json")
-            local decoded = HttpService:JSONDecode(data)
-            users = decoded or {}
-        end
-    end)
-    return users
-end
 
--- Save all trial users
-local function SaveAllTrialUsers(users)
-    pcall(function()
-        if not isfolder("AutofarmScript") then
-            makefolder("AutofarmScript")
-        end
-        
-        local encoded = HttpService:JSONEncode(users)
-        writefile("AutofarmScript/all_trials.json", encoded)
-    end)
-end
-
--- Add current user to global list
-local function AddToGlobalList()
-    pcall(function()
-        local allUsers = GetAllTrialUsers()
-        
-        local found = false
-        for i, userData in ipairs(allUsers) do
-            if userData.userId == player.UserId then
-                allUsers[i] = {
-                    userId = player.UserId,
-                    username = player.Name,
-                    used = trialData.used,
-                    startTime = trialData.startTime,
-                    endTime = trialData.endTime
-                }
-                found = true
-                break
-            end
-        end
-        
-        if not found then
-            table.insert(allUsers, {
-                userId = player.UserId,
-                username = player.Name,
-                used = trialData.used,
-                startTime = trialData.startTime,
-                endTime = trialData.endTime
-            })
-        end
-        
-        SaveAllTrialUsers(allUsers)
-    end)
-end
 
 local function createSparkleExplosion(parent, position)
     for i = 1, 12 do
@@ -627,23 +587,12 @@ end
 
 local function createAdminPanel()
     if not isAdmin(player.UserId) then
-        showNotification("❌ Access Denied", "Admins only!")
+        showNotification("Access Denied - Admins Only")
         return
     end
     
     if playerGui:FindFirstChild("AdminPanelGui") then
         playerGui:FindFirstChild("AdminPanelGui"):Destroy()
-    end
-    
-    -- Refresh global list from all local files
-    local function refreshAllUsers()
-        -- Force reload from disk
-        local allUsers = GetAllTrialUsers()
-        
-        -- Also add current player if not in list
-        AddToGlobalList()
-        
-        return GetAllTrialUsers()
     end
     
     local adminGui = Instance.new("ScreenGui")
@@ -685,8 +634,8 @@ local function createAdminPanel()
     panelShadow.Parent = mainPanel
     
     local topBar = Instance.new("Frame")
-    topBar.Size = UDim2.new(1, 0, 0, 5)
-    topBar.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    topBar.Size = UDim2.new(1, 0, 0, 4)
+    topBar.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
     topBar.BorderSizePixel = 0
     topBar.Parent = mainPanel
     
@@ -695,32 +644,15 @@ local function createAdminPanel()
     topCorner.Parent = topBar
     
     local titleLabel = Instance.new("TextLabel")
-    titleLabel.Position = UDim2.new(0, 25, 0, 15)
+    titleLabel.Position = UDim2.new(0, 20, 0, 15)
     titleLabel.Size = UDim2.new(1, -100, 0, 30)
     titleLabel.BackgroundTransparency = 1
     titleLabel.Font = Enum.Font.FredokaOne
-    titleLabel.Text = "🛡️ ADMIN PANEL"
+    titleLabel.Text = "ADMIN CONTROL PANEL"
     titleLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
-    titleLabel.TextSize = 24
+    titleLabel.TextSize = 22
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.Parent = mainPanel
-    
-    local refreshBtn = Instance.new("TextButton")
-    refreshBtn.AnchorPoint = Vector2.new(1, 0)
-    refreshBtn.Position = UDim2.new(1, -60, 0, 12)
-    refreshBtn.Size = UDim2.new(0, 40, 0, 35)
-    refreshBtn.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
-    refreshBtn.BorderSizePixel = 0
-    refreshBtn.AutoButtonColor = false
-    refreshBtn.Font = Enum.Font.FredokaOne
-    refreshBtn.Text = "🔄"
-    refreshBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    refreshBtn.TextSize = 20
-    refreshBtn.Parent = mainPanel
-    
-    local refreshCorner = Instance.new("UICorner")
-    refreshCorner.CornerRadius = UDim.new(0, 8)
-    refreshCorner.Parent = refreshBtn
     
     local closeBtn = Instance.new("TextButton")
     closeBtn.AnchorPoint = Vector2.new(1, 0)
@@ -754,29 +686,87 @@ local function createAdminPanel()
         adminGui:Destroy()
     end)
     
-    refreshBtn.MouseButton1Click:Connect(function()
-        playSound(6895079853)
-        adminGui:Destroy()
-        createAdminPanel()
-    end)
+    -- User ID Input Section
+    local inputSection = Instance.new("Frame")
+    inputSection.Position = UDim2.new(0, 20, 0, 60)
+    inputSection.Size = UDim2.new(1, -40, 0, 80)
+    inputSection.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+    inputSection.BorderSizePixel = 0
+    inputSection.Parent = mainPanel
     
-    local scrollFrame = Instance.new("ScrollingFrame")
-    scrollFrame.Position = UDim2.new(0, 25, 0, 60)
-    scrollFrame.Size = UDim2.new(1, -50, 1, -75)
-    scrollFrame.BackgroundTransparency = 1
-    scrollFrame.BorderSizePixel = 0
-    scrollFrame.ScrollBarThickness = 5
-    scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(79, 179, 235)
-    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
-    scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    scrollFrame.Parent = mainPanel
+    local inputCorner = Instance.new("UICorner")
+    inputCorner.CornerRadius = UDim.new(0, 12)
+    inputCorner.Parent = inputSection
     
-    local listLayout = Instance.new("UIListLayout")
-    listLayout.Padding = UDim.new(0, 10)
-    listLayout.Parent = scrollFrame
+    local inputLabel = Instance.new("TextLabel")
+    inputLabel.Position = UDim2.new(0, 15, 0, 10)
+    inputLabel.Size = UDim2.new(1, -30, 0, 20)
+    inputLabel.BackgroundTransparency = 1
+    inputLabel.Font = Enum.Font.FredokaOne
+    inputLabel.Text = "Enter User ID:"
+    inputLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
+    inputLabel.TextSize = 16
+    inputLabel.TextXAlignment = Enum.TextXAlignment.Left
+    inputLabel.Parent = inputSection
+    
+    local userIdBox = Instance.new("TextBox")
+    userIdBox.Position = UDim2.new(0, 15, 0, 35)
+    userIdBox.Size = UDim2.new(1, -140, 0, 35)
+    userIdBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    userIdBox.BorderSizePixel = 0
+    userIdBox.Font = Enum.Font.FredokaOne
+    userIdBox.PlaceholderText = "User ID (e.g., 1234567890)"
+    userIdBox.Text = ""
+    userIdBox.TextColor3 = Color3.fromRGB(50, 50, 50)
+    userIdBox.TextSize = 14
+    userIdBox.ClearTextOnFocus = false
+    userIdBox.Parent = inputSection
+    
+    local boxCorner = Instance.new("UICorner")
+    boxCorner.CornerRadius = UDim.new(0, 8)
+    boxCorner.Parent = userIdBox
+    
+    local searchBtn = Instance.new("TextButton")
+    searchBtn.Position = UDim2.new(1, -115, 0, 35)
+    searchBtn.Size = UDim2.new(0, 100, 0, 35)
+    searchBtn.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+    searchBtn.BorderSizePixel = 0
+    searchBtn.AutoButtonColor = false
+    searchBtn.Font = Enum.Font.FredokaOne
+    searchBtn.Text = "SEARCH"
+    searchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    searchBtn.TextSize = 14
+    searchBtn.Parent = inputSection
+    
+    local searchCorner = Instance.new("UICorner")
+    searchCorner.CornerRadius = UDim.new(0, 8)
+    searchCorner.Parent = searchBtn
+    
+    -- Results Section
+    local resultsSection = Instance.new("Frame")
+    resultsSection.Position = UDim2.new(0, 20, 0, 155)
+    resultsSection.Size = UDim2.new(1, -40, 1, -170)
+    resultsSection.BackgroundTransparency = 1
+    resultsSection.BorderSizePixel = 0
+    resultsSection.Visible = false
+    resultsSection.Parent = mainPanel
+    
+    local resultsScroll = Instance.new("ScrollingFrame")
+    resultsScroll.Size = UDim2.new(1, 0, 1, 0)
+    resultsScroll.BackgroundTransparency = 1
+    resultsScroll.BorderSizePixel = 0
+    resultsScroll.ScrollBarThickness = 5
+    resultsScroll.ScrollBarImageColor3 = Color3.fromRGB(79, 179, 235)
+    resultsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    resultsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    resultsScroll.Parent = resultsSection
+    
+    local resultsList = Instance.new("UIListLayout")
+    resultsList.Padding = UDim.new(0, 10)
+    resultsList.Parent = resultsScroll
     
     -- Function to show time selector
-    local function showTimeSelector(userData, isAdding)
+    local function showTimeSelector(targetUserId, targetUsername, isAdding)
         local selectorGui = Instance.new("ScreenGui")
         selectorGui.Name = "TimeSelectorGui"
         selectorGui.DisplayOrder = 1001
@@ -807,7 +797,7 @@ local function createAdminPanel()
         selectorTitle.Size = UDim2.new(1, -40, 0, 25)
         selectorTitle.BackgroundTransparency = 1
         selectorTitle.Font = Enum.Font.FredokaOne
-        selectorTitle.Text = isAdding and "⚡ Add Trial Time" or "🗑️ Remove Trial Time"
+        selectorTitle.Text = isAdding and "Add Trial Time" or "Remove Trial Time"
         selectorTitle.TextColor3 = Color3.fromRGB(50, 50, 50)
         selectorTitle.TextSize = 20
         selectorTitle.TextXAlignment = Enum.TextXAlignment.Left
@@ -818,7 +808,7 @@ local function createAdminPanel()
         userLabel.Size = UDim2.new(1, -40, 0, 20)
         userLabel.BackgroundTransparency = 1
         userLabel.Font = Enum.Font.FredokaOne
-        userLabel.Text = "User: " .. userData.username
+        userLabel.Text = "User: " .. targetUsername .. " (ID: " .. targetUserId .. ")"
         userLabel.TextColor3 = Color3.fromRGB(100, 100, 100)
         userLabel.TextSize = 14
         userLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -834,7 +824,7 @@ local function createAdminPanel()
             {text = "2 hours", seconds = 7200},
             {text = "5 hours", seconds = 18000}
         } or {
-            {text = "Remove ALL", seconds = -1},
+            {text = "REMOVE ALL", seconds = -1},
             {text = "30 seconds", seconds = 30},
             {text = "1 minute", seconds = 60},
             {text = "5 minutes", seconds = 300},
@@ -864,165 +854,263 @@ local function createAdminPanel()
             optionBtn.MouseButton1Click:Connect(function()
                 playSound(6895079853)
                 
-                local allUsersData = GetAllTrialUsers()
-                for j, user in ipairs(allUsersData) do
-                    if user.userId == userData.userId then
-                        if isAdding then
-                            if not user.used then
-                                -- First time activation
-                                allUsersData[j].used = true
-                                allUsersData[j].startTime = os.time()
-                                allUsersData[j].endTime = os.time() + option.seconds
-                            else
-                                -- Add to existing time
-                                allUsersData[j].endTime = (allUsersData[j].endTime or os.time()) + option.seconds
-                            end
-                            showNotification("⚡ Added " .. option.text .. " to " .. userData.username)
-                        else
-                            if option.seconds == -1 then
-                                -- Remove all
-                                allUsersData[j].used = false
-                                allUsersData[j].startTime = 0
-                                allUsersData[j].endTime = 0
-                                showNotification("🗑️ Removed ALL trial from " .. userData.username)
-                            else
-                                -- Subtract time
-                                local newEnd = (allUsersData[j].endTime or os.time()) - option.seconds
-                                if newEnd <= os.time() then
-                                    allUsersData[j].used = false
-                                    allUsersData[j].startTime = 0
-                                    allUsersData[j].endTime = 0
-                                else
-                                    allUsersData[j].endTime = newEnd
-                                end
-                                showNotification("🗑️ Removed " .. option.text .. " from " .. userData.username)
-                            end
+                -- Load trial data for target user
+                local targetTrialData = {
+                    userId = targetUserId,
+                    used = false,
+                    startTime = 0,
+                    endTime = 0
+                }
+                
+                -- Try to load existing data
+                pcall(function()
+                    if isfile("AutofarmScript/trial_" .. targetUserId .. ".json") then
+                        local data = readfile("AutofarmScript/trial_" .. targetUserId .. ".json")
+                        local decoded = HttpService:JSONDecode(data)
+                        if decoded then
+                            targetTrialData = decoded
                         end
-                        break
+                    end
+                end)
+                
+                -- Modify trial data
+                if isAdding then
+                    if not targetTrialData.used then
+                        -- First time activation
+                        targetTrialData.used = true
+                        targetTrialData.startTime = os.time()
+                        targetTrialData.endTime = os.time() + option.seconds
+                    else
+                        -- Add to existing time
+                        targetTrialData.endTime = (targetTrialData.endTime or os.time()) + option.seconds
+                    end
+                    showNotification("Added " .. option.text .. " to " .. targetUsername)
+                else
+                    if option.seconds == -1 then
+                        -- Remove all
+                        targetTrialData.used = false
+                        targetTrialData.startTime = 0
+                        targetTrialData.endTime = 0
+                        showNotification("Removed ALL trial from " .. targetUsername)
+                    else
+                        -- Subtract time
+                        local newEnd = (targetTrialData.endTime or os.time()) - option.seconds
+                        if newEnd <= os.time() then
+                            targetTrialData.used = false
+                            targetTrialData.startTime = 0
+                            targetTrialData.endTime = 0
+                        else
+                            targetTrialData.endTime = newEnd
+                        end
+                        showNotification("Removed " .. option.text .. " from " .. targetUsername)
                     end
                 end
-                SaveAllTrialUsers(allUsersData)
+                
+                -- Save trial data
+                pcall(function()
+                    if not isfolder("AutofarmScript") then
+                        makefolder("AutofarmScript")
+                    end
+                    
+                    local encoded = HttpService:JSONEncode(targetTrialData)
+                    writefile("AutofarmScript/trial_" .. targetUserId .. ".json", encoded)
+                end)
                 
                 -- Update local trial data if it's the current player
-                if userData.userId == player.UserId then
-                    LoadTrialData()
+                if targetUserId == player.UserId then
+                    trialData = targetTrialData
+                    
+                    -- Reload UI if trial state changed dramatically
+                    if not targetTrialData.used or (targetTrialData.endTime and targetTrialData.endTime <= os.time()) then
+                        showNotification("Trial modified - Reloading UI...")
+                        task.wait(1)
+                        
+                        if screenGui and screenGui.Parent then
+                            screenGui:Destroy()
+                        end
+                    end
                 end
                 
                 selectorGui:Destroy()
-                adminGui:Destroy()
-                createAdminPanel()
             end)
             
             yPos = yPos + 45
         end
         
         selectorFrame:TweenSize(UDim2.new(0, 350, 0, yPos + 20), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.4, true)
-    end
-    
-    -- Get all trial users
-    local allUsers = refreshAllUsers()
-    
-    if #allUsers == 0 then
-        local noUsersLabel = Instance.new("TextLabel")
-        noUsersLabel.Size = UDim2.new(1, 0, 0, 60)
-        noUsersLabel.BackgroundTransparency = 1
-        noUsersLabel.Font = Enum.Font.FredokaOne
-        noUsersLabel.Text = "No users have executed the script yet.\nPress 🔄 to refresh."
-        noUsersLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-        noUsersLabel.TextSize = 16
-        noUsersLabel.Parent = scrollFrame
-    else
-        for i, userData in ipairs(allUsers) do
-            local userCard = Instance.new("Frame")
-            userCard.Size = UDim2.new(1, -10, 0, 110)
-            userCard.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
-            userCard.BorderSizePixel = 0
-            userCard.Parent = scrollFrame
-            
-            local cardCorner = Instance.new("UICorner")
-            cardCorner.CornerRadius = UDim.new(0, 12)
-            cardCorner.Parent = userCard
-            
-            local usernameLabel = Instance.new("TextLabel")
-            usernameLabel.Position = UDim2.new(0, 15, 0, 8)
-            usernameLabel.Size = UDim2.new(1, -30, 0, 22)
-            usernameLabel.BackgroundTransparency = 1
-            usernameLabel.Font = Enum.Font.FredokaOne
-            usernameLabel.Text = userData.username .. " (ID: " .. userData.userId .. ")"
-            usernameLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
-            usernameLabel.TextSize = 16
-            usernameLabel.TextXAlignment = Enum.TextXAlignment.Left
-            usernameLabel.Parent = userCard
-            
-            local statusLabel = Instance.new("TextLabel")
-            statusLabel.Position = UDim2.new(0, 15, 0, 32)
-            statusLabel.Size = UDim2.new(1, -30, 0, 18)
-            statusLabel.BackgroundTransparency = 1
-            statusLabel.Font = Enum.Font.FredokaOne
-            statusLabel.TextSize = 13
-            statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-            statusLabel.Parent = userCard
-            
-            local currentTime = os.time()
-            local hasActiveTrial = userData.used and userData.endTime and userData.endTime > currentTime
-            
-            if hasActiveTrial then
-                local remaining = userData.endTime - currentTime
-                statusLabel.Text = "⚡ ACTIVE - " .. FormatTime(remaining) .. " remaining"
-                statusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-            elseif userData.used then
-                statusLabel.Text = "⏰ Expired on " .. os.date("%m/%d/%Y %I:%M %p", userData.endTime or 0)
-                statusLabel.TextColor3 = Color3.fromRGB(235, 87, 87)
-            else
-                statusLabel.Text = "❌ Trial Not Used"
-                statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+        
+        selectorBlur.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                selectorGui:Destroy()
             end
-            
-            local addBtn = Instance.new("TextButton")
-            addBtn.Position = UDim2.new(0, 15, 1, -35)
-            addBtn.Size = UDim2.new(0.48, -10, 0, 28)
-            addBtn.BackgroundColor3 = Color3.fromRGB(120, 255, 180)
-            addBtn.BorderSizePixel = 0
-            addBtn.AutoButtonColor = false
-            addBtn.Font = Enum.Font.FredokaOne
-            addBtn.Text = "⚡ Add Time"
-            addBtn.TextColor3 = Color3.fromRGB(50, 50, 50)
-            addBtn.TextSize = 13
-            addBtn.Parent = userCard
-            
-            local addCorner = Instance.new("UICorner")
-            addCorner.CornerRadius = UDim.new(0, 8)
-            addCorner.Parent = addBtn
-            
-            local removeBtn = Instance.new("TextButton")
-            removeBtn.Position = UDim2.new(0.52, 5, 1, -35)
-            removeBtn.Size = UDim2.new(0.48, -10, 0, 28)
-            removeBtn.BackgroundColor3 = Color3.fromRGB(255, 120, 120)
-            removeBtn.BorderSizePixel = 0
-            removeBtn.AutoButtonColor = false
-            removeBtn.Font = Enum.Font.FredokaOne
-            removeBtn.Text = "🗑️ Remove Time"
-            removeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            removeBtn.TextSize = 13
-            removeBtn.Parent = userCard
-            
-            local removeCorner = Instance.new("UICorner")
-            removeCorner.CornerRadius = UDim.new(0, 8)
-            removeCorner.Parent = removeBtn
-            
-            addBtn.MouseButton1Click:Connect(function()
-                playSound(6895079853)
-                showTimeSelector(userData, true)
-            end)
-            
-            removeBtn.MouseButton1Click:Connect(function()
-                playSound(6895079853)
-                showTimeSelector(userData, false)
-            end)
-        end
+        end)
     end
     
-    mainPanel:TweenSize(UDim2.new(0, 600, 0, 500), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
+    -- Search functionality
+    searchBtn.MouseButton1Click:Connect(function()
+        playSound(6895079853)
+        
+        local userId = tonumber(userIdBox.Text)
+        if not userId then
+            showNotification("Invalid User ID")
+            return
+        end
+        
+        -- Clear previous results
+        for _, child in pairs(resultsScroll:GetChildren()) do
+            if child:IsA("Frame") then
+                child:Destroy()
+            end
+        end
+        
+        resultsSection.Visible = true
+        
+        -- Try to get username
+        local username = "User " .. userId
+        pcall(function()
+            local success, name = pcall(function()
+                return Players:GetNameFromUserIdAsync(userId)
+            end)
+            if success and name then
+                username = name
+            end
+        end)
+        
+        -- Load trial data for this user
+        local userTrialData = {
+            userId = userId,
+            username = username,
+            used = false,
+            startTime = 0,
+            endTime = 0
+        }
+        
+        pcall(function()
+            if isfile("AutofarmScript/trial_" .. userId .. ".json") then
+                local data = readfile("AutofarmScript/trial_" .. userId .. ".json")
+                local decoded = HttpService:JSONDecode(data)
+                if decoded then
+                    userTrialData = decoded
+                    userTrialData.username = username
+                    userTrialData.userId = userId
+                end
+            end
+        end)
+        
+        -- Create user card
+        local userCard = Instance.new("Frame")
+        userCard.Size = UDim2.new(1, -10, 0, 120)
+        userCard.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+        userCard.BorderSizePixel = 0
+        userCard.Parent = resultsScroll
+        
+        local cardCorner = Instance.new("UICorner")
+        cardCorner.CornerRadius = UDim.new(0, 12)
+        cardCorner.Parent = userCard
+        
+        -- Player thumbnail
+        local thumbnail = Instance.new("ImageLabel")
+        thumbnail.Position = UDim2.new(0, 15, 0, 15)
+        thumbnail.Size = UDim2.new(0, 50, 0, 50)
+        thumbnail.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+        thumbnail.BorderSizePixel = 0
+        thumbnail.Image = "rbxthumb://type=AvatarHeadShot&id=" .. userId .. "&w=150&h=150"
+        thumbnail.Parent = userCard
+        
+        local thumbCorner = Instance.new("UICorner")
+        thumbCorner.CornerRadius = UDim.new(0.25, 0)
+        thumbCorner.Parent = thumbnail
+        
+        local usernameLabel = Instance.new("TextLabel")
+        usernameLabel.Position = UDim2.new(0, 75, 0, 10)
+        usernameLabel.Size = UDim2.new(1, -85, 0, 22)
+        usernameLabel.BackgroundTransparency = 1
+        usernameLabel.Font = Enum.Font.FredokaOne
+        usernameLabel.Text = username
+        usernameLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
+        usernameLabel.TextSize = 18
+        usernameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        usernameLabel.Parent = userCard
+        
+        local idLabel = Instance.new("TextLabel")
+        idLabel.Position = UDim2.new(0, 75, 0, 35)
+        idLabel.Size = UDim2.new(1, -85, 0, 18)
+        idLabel.BackgroundTransparency = 1
+        idLabel.Font = Enum.Font.FredokaOne
+        idLabel.Text = "User ID: " .. userId
+        idLabel.TextColor3 = Color3.fromRGB(100, 100, 100)
+        idLabel.TextSize = 13
+        idLabel.TextXAlignment = Enum.TextXAlignment.Left
+        idLabel.Parent = userCard
+        
+        local statusLabel = Instance.new("TextLabel")
+        statusLabel.Position = UDim2.new(0, 15, 0, 75)
+        statusLabel.Size = UDim2.new(1, -30, 0, 18)
+        statusLabel.BackgroundTransparency = 1
+        statusLabel.Font = Enum.Font.FredokaOne
+        statusLabel.TextSize = 13
+        statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+        statusLabel.Parent = userCard
+        
+        local currentTime = os.time()
+        local hasActiveTrial = userTrialData.used and userTrialData.endTime and userTrialData.endTime > currentTime
+        
+        if hasActiveTrial then
+            local remaining = userTrialData.endTime - currentTime
+            statusLabel.Text = "Status: ACTIVE - " .. FormatTime(remaining) .. " remaining"
+            statusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+        elseif userTrialData.used then
+            statusLabel.Text = "Status: Expired on " .. os.date("%m/%d/%Y %I:%M %p", userTrialData.endTime or 0)
+            statusLabel.TextColor3 = Color3.fromRGB(235, 87, 87)
+        else
+            statusLabel.Text = "Status: No Trial Data"
+            statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+        end
+        
+        local addBtn = Instance.new("TextButton")
+        addBtn.Position = UDim2.new(0, 15, 1, -35)
+        addBtn.Size = UDim2.new(0.48, -10, 0, 28)
+        addBtn.BackgroundColor3 = Color3.fromRGB(120, 255, 180)
+        addBtn.BorderSizePixel = 0
+        addBtn.AutoButtonColor = false
+        addBtn.Font = Enum.Font.FredokaOne
+        addBtn.Text = "Add Time"
+        addBtn.TextColor3 = Color3.fromRGB(50, 50, 50)
+        addBtn.TextSize = 14
+        addBtn.Parent = userCard
+        
+        local addCorner = Instance.new("UICorner")
+        addCorner.CornerRadius = UDim.new(0, 8)
+        addCorner.Parent = addBtn
+        
+        local removeBtn = Instance.new("TextButton")
+        removeBtn.Position = UDim2.new(0.52, 5, 1, -35)
+        removeBtn.Size = UDim2.new(0.48, -10, 0, 28)
+        removeBtn.BackgroundColor3 = Color3.fromRGB(255, 120, 120)
+        removeBtn.BorderSizePixel = 0
+        removeBtn.AutoButtonColor = false
+        removeBtn.Font = Enum.Font.FredokaOne
+        removeBtn.Text = "Remove Time"
+        removeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        removeBtn.TextSize = 14
+        removeBtn.Parent = userCard
+        
+        local removeCorner = Instance.new("UICorner")
+        removeCorner.CornerRadius = UDim.new(0, 8)
+        removeCorner.Parent = removeBtn
+        
+        addBtn.MouseButton1Click:Connect(function()
+            playSound(6895079853)
+            showTimeSelector(userId, username, true)
+        end)
+        
+        removeBtn.MouseButton1Click:Connect(function()
+            playSound(6895079853)
+            showTimeSelector(userId, username, false)
+        end)
+    end)
+    
+    mainPanel:TweenSize(UDim2.new(0, 550, 0, 450), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
     
     blur.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -1373,9 +1461,11 @@ local function createUI()
     
     -- Check trial status FIRST
     LoadTrialData()
+    print("Trial data after load - used: " .. tostring(trialData.used) .. ", endTime: " .. tostring(trialData.endTime))
     local isTrialActive = IsTrialActive()
+    print("Is trial active: " .. tostring(isTrialActive))
     local hasPremiumAccess = isPremium or isTrialActive
-    print("Has premium access: " .. tostring(hasPremiumAccess))
+    print("Has premium access: " .. tostring(hasPremiumAccess) .. " (Premium: " .. tostring(isPremium) .. ", Trial: " .. tostring(isTrialActive) .. ")")
     
     if hasPremiumAccess then
         playerStatusLabel.Text = "Premium Member"
@@ -1498,7 +1588,7 @@ local function createUI()
         trialButton.BorderSizePixel = 0
         trialButton.AutoButtonColor = false
         trialButton.Font = Enum.Font.FredokaOne
-        trialButton.Text = "Free Trial PRO ⚡"
+        trialButton.Text = "Free Trial PRO"
         trialButton.TextColor3 = Color3.fromRGB(50, 50, 50)
         trialButton.TextSize = 16
         trialButton.Visible = false
@@ -1657,7 +1747,7 @@ local function createUI()
                 confirmGui:Destroy()
                 
                 -- Show notification
-                showNotification("🎉 Free Trial Activated! Reloading...")
+                showNotification("Free Trial Activated! Reloading...")
                 task.wait(1)
                 
                 -- Reload entire GUI
@@ -2410,6 +2500,3 @@ player.Chatted:Connect(function(msg)
         createAdminPanel()
     end
 end)
-
--- Add current user to global trial list on load
-AddToGlobalList()
