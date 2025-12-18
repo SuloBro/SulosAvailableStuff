@@ -16,7 +16,7 @@ local isDragging = false
 local isAdjustingSpeed = false
 local currentRating = 0
 
-local WEBHOOK_URL = "https://discordapp.com/api/webhooks/1324265546266710056/o9QNbrRXT1sLpBUzMDpYHKomJz87VDiviLwoBSTOARhKUYwto8ozU50rpFs7c488xjo6"
+local WEBHOOK_URL = "https://discordapp.com/api/webhooks/1451187917610287185/0_hqVNZhm9bs8iW-8TV3m_B76tBH6dODup6R9TzjJtmxQWUaelpgtI4Opur73sJEelb2"
 local NO_VOTE_IMAGE = "rbxassetid://15142565460"
 local VOTE_IMAGE = "rbxassetid://95139082764448"
 local GROUP_ID = 10612101
@@ -95,6 +95,112 @@ local function GetRemainingTime()
     
     local currentTime = os.time()
     return trialData.endTime - currentTime
+end
+
+-- Monitor trial expiration
+local function MonitorTrialExpiration(screenGui)
+    spawn(function()
+        while screenGui.Parent do
+            if trialData.used and GetRemainingTime() <= 0 then
+                -- Trial just expired!
+                print("⏰ Trial expired! Reloading UI...")
+                
+                -- Stop autofarm if running
+                if isRunning then
+                    isRunning = false
+                    stopAutofarm()
+                end
+                
+                showNotification("⏰ Trial Expired", "Reloading UI...")
+                task.wait(2)
+                
+                -- Reload entire UI
+                screenGui:Destroy()
+                task.wait(0.2)
+                
+                -- Recreate everything
+                createShowcaseUI(function()
+                    local gui, frame, statusLabel, toggleButton, statusIndicator, purchaseButton = createUI()
+                    gui.Enabled = true
+                    
+                    -- Setup status monitoring
+                    local mainMapFound = false
+
+                    local function updateStatus()
+                        local mainMap = getMainMap()
+                        
+                        if not mainMap then
+                            if mainMapFound then
+                                playSound(2390695935)
+                                mainMapFound = false
+                            end
+                            statusLabel.Text = "Please go to MainMap"
+                            statusLabel.TextColor3 = Color3.fromRGB(235, 87, 87)
+                            statusIndicator.BackgroundColor3 = Color3.fromRGB(235, 87, 87)
+                            toggleButton.Visible = true
+                        else
+                            if not mainMapFound then
+                                playSound(136993031050456)
+                                mainMapFound = true
+                            end
+                            
+                            if isRunning then
+                                statusLabel.Text = "Farming active"
+                                statusLabel.TextColor3 = Color3.fromRGB(79, 179, 235)
+                                statusIndicator.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+                            else
+                                statusLabel.Text = "Ready to start"
+                                statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+                                statusIndicator.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+                            end
+                        end
+                    end
+
+                    updateStatus()
+
+                    toggleButton.MouseButton1Click:Connect(function()
+                        playSound(6895079853)
+                        createSparkleExplosion(frame, UDim2.new(0.5, 0, 0.555, 0))
+                        
+                        if not getMainMap() then
+                            statusLabel.Text = "Please go to MainMap"
+                            statusLabel.TextColor3 = Color3.fromRGB(235, 87, 87)
+                            return
+                        end
+                        
+                        isRunning = not isRunning
+                        
+                        if isRunning then
+                            toggleButton.Text = "Stop Farming"
+                            toggleButton.BackgroundColor3 = Color3.fromRGB(235, 87, 87)
+                            startAutofarm()
+                        else
+                            toggleButton.Text = "Start Farming"
+                            toggleButton.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+                            stopAutofarm()
+                        end
+                        
+                        updateStatus()
+                    end)
+
+                    purchaseButton.MouseButton1Click:Connect(function()
+                        playSound(6895079853)
+                        createSparkleExplosion(frame, UDim2.new(0.35, 0, 0.735, 0))
+                        setclipboard("https://www.roblox.com/catalog/" .. PREMIUM_SHIRT_ID)
+                        showNotification("Premium link copied to clipboard!")
+                    end)
+
+                    RunService.Heartbeat:Connect(function()
+                        updateStatus()
+                    end)
+                end)
+                
+                break
+            end
+            
+            task.wait(5) -- Check every 5 seconds
+        end
+    end)
 end
 
 -- Format time for display
@@ -529,6 +635,17 @@ local function createAdminPanel()
         playerGui:FindFirstChild("AdminPanelGui"):Destroy()
     end
     
+    -- Refresh global list from all local files
+    local function refreshAllUsers()
+        -- Force reload from disk
+        local allUsers = GetAllTrialUsers()
+        
+        -- Also add current player if not in list
+        AddToGlobalList()
+        
+        return GetAllTrialUsers()
+    end
+    
     local adminGui = Instance.new("ScreenGui")
     adminGui.Name = "AdminPanelGui"
     adminGui.DisplayOrder = 1000
@@ -578,19 +695,36 @@ local function createAdminPanel()
     topCorner.Parent = topBar
     
     local titleLabel = Instance.new("TextLabel")
-    titleLabel.Position = UDim2.new(0, 25, 0, 20)
-    titleLabel.Size = UDim2.new(1, -50, 0, 35)
+    titleLabel.Position = UDim2.new(0, 25, 0, 15)
+    titleLabel.Size = UDim2.new(1, -100, 0, 30)
     titleLabel.BackgroundTransparency = 1
     titleLabel.Font = Enum.Font.FredokaOne
-    titleLabel.Text = "🛡️ ADMIN CONTROL PANEL"
+    titleLabel.Text = "🛡️ ADMIN PANEL"
     titleLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
-    titleLabel.TextSize = 26
+    titleLabel.TextSize = 24
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.Parent = mainPanel
     
+    local refreshBtn = Instance.new("TextButton")
+    refreshBtn.AnchorPoint = Vector2.new(1, 0)
+    refreshBtn.Position = UDim2.new(1, -60, 0, 12)
+    refreshBtn.Size = UDim2.new(0, 40, 0, 35)
+    refreshBtn.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+    refreshBtn.BorderSizePixel = 0
+    refreshBtn.AutoButtonColor = false
+    refreshBtn.Font = Enum.Font.FredokaOne
+    refreshBtn.Text = "🔄"
+    refreshBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    refreshBtn.TextSize = 20
+    refreshBtn.Parent = mainPanel
+    
+    local refreshCorner = Instance.new("UICorner")
+    refreshCorner.CornerRadius = UDim.new(0, 8)
+    refreshCorner.Parent = refreshBtn
+    
     local closeBtn = Instance.new("TextButton")
     closeBtn.AnchorPoint = Vector2.new(1, 0)
-    closeBtn.Position = UDim2.new(1, -15, 0, 15)
+    closeBtn.Position = UDim2.new(1, -15, 0, 12)
     closeBtn.Size = UDim2.new(0, 35, 0, 35)
     closeBtn.BackgroundColor3 = Color3.fromRGB(245, 245, 245)
     closeBtn.BorderSizePixel = 0
@@ -620,9 +754,15 @@ local function createAdminPanel()
         adminGui:Destroy()
     end)
     
+    refreshBtn.MouseButton1Click:Connect(function()
+        playSound(6895079853)
+        adminGui:Destroy()
+        createAdminPanel()
+    end)
+    
     local scrollFrame = Instance.new("ScrollingFrame")
-    scrollFrame.Position = UDim2.new(0, 25, 0, 70)
-    scrollFrame.Size = UDim2.new(1, -50, 1, -85)
+    scrollFrame.Position = UDim2.new(0, 25, 0, 60)
+    scrollFrame.Size = UDim2.new(1, -50, 1, -75)
     scrollFrame.BackgroundTransparency = 1
     scrollFrame.BorderSizePixel = 0
     scrollFrame.ScrollBarThickness = 5
@@ -635,22 +775,166 @@ local function createAdminPanel()
     listLayout.Padding = UDim.new(0, 10)
     listLayout.Parent = scrollFrame
     
+    -- Function to show time selector
+    local function showTimeSelector(userData, isAdding)
+        local selectorGui = Instance.new("ScreenGui")
+        selectorGui.Name = "TimeSelectorGui"
+        selectorGui.DisplayOrder = 1001
+        selectorGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        selectorGui.Parent = playerGui
+        
+        local selectorBlur = Instance.new("Frame")
+        selectorBlur.Size = UDim2.new(1, 0, 1, 0)
+        selectorBlur.BackgroundColor3 = Color3.new(0, 0, 0)
+        selectorBlur.BackgroundTransparency = 0.5
+        selectorBlur.BorderSizePixel = 0
+        selectorBlur.Parent = selectorGui
+        
+        local selectorFrame = Instance.new("Frame")
+        selectorFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+        selectorFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+        selectorFrame.Size = UDim2.new(0, 0, 0, 0)
+        selectorFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        selectorFrame.BorderSizePixel = 0
+        selectorFrame.Parent = selectorGui
+        
+        local selectorCorner = Instance.new("UICorner")
+        selectorCorner.CornerRadius = UDim.new(0, 12)
+        selectorCorner.Parent = selectorFrame
+        
+        local selectorTitle = Instance.new("TextLabel")
+        selectorTitle.Position = UDim2.new(0, 20, 0, 15)
+        selectorTitle.Size = UDim2.new(1, -40, 0, 25)
+        selectorTitle.BackgroundTransparency = 1
+        selectorTitle.Font = Enum.Font.FredokaOne
+        selectorTitle.Text = isAdding and "⚡ Add Trial Time" or "🗑️ Remove Trial Time"
+        selectorTitle.TextColor3 = Color3.fromRGB(50, 50, 50)
+        selectorTitle.TextSize = 20
+        selectorTitle.TextXAlignment = Enum.TextXAlignment.Left
+        selectorTitle.Parent = selectorFrame
+        
+        local userLabel = Instance.new("TextLabel")
+        userLabel.Position = UDim2.new(0, 20, 0, 45)
+        userLabel.Size = UDim2.new(1, -40, 0, 20)
+        userLabel.BackgroundTransparency = 1
+        userLabel.Font = Enum.Font.FredokaOne
+        userLabel.Text = "User: " .. userData.username
+        userLabel.TextColor3 = Color3.fromRGB(100, 100, 100)
+        userLabel.TextSize = 14
+        userLabel.TextXAlignment = Enum.TextXAlignment.Left
+        userLabel.Parent = selectorFrame
+        
+        local timeOptions = isAdding and {
+            {text = "30 seconds", seconds = 30},
+            {text = "1 minute", seconds = 60},
+            {text = "5 minutes", seconds = 300},
+            {text = "15 minutes", seconds = 900},
+            {text = "30 minutes", seconds = 1800},
+            {text = "1 hour", seconds = 3600},
+            {text = "2 hours", seconds = 7200},
+            {text = "5 hours", seconds = 18000}
+        } or {
+            {text = "Remove ALL", seconds = -1},
+            {text = "30 seconds", seconds = 30},
+            {text = "1 minute", seconds = 60},
+            {text = "5 minutes", seconds = 300},
+            {text = "15 minutes", seconds = 900},
+            {text = "30 minutes", seconds = 1800},
+            {text = "1 hour", seconds = 3600}
+        }
+        
+        local yPos = 75
+        for i, option in ipairs(timeOptions) do
+            local optionBtn = Instance.new("TextButton")
+            optionBtn.Position = UDim2.new(0, 20, 0, yPos)
+            optionBtn.Size = UDim2.new(1, -40, 0, 35)
+            optionBtn.BackgroundColor3 = isAdding and Color3.fromRGB(120, 255, 180) or Color3.fromRGB(255, 120, 120)
+            optionBtn.BorderSizePixel = 0
+            optionBtn.AutoButtonColor = false
+            optionBtn.Font = Enum.Font.FredokaOne
+            optionBtn.Text = option.text
+            optionBtn.TextColor3 = Color3.fromRGB(50, 50, 50)
+            optionBtn.TextSize = 16
+            optionBtn.Parent = selectorFrame
+            
+            local optionCorner = Instance.new("UICorner")
+            optionCorner.CornerRadius = UDim.new(0, 8)
+            optionCorner.Parent = optionBtn
+            
+            optionBtn.MouseButton1Click:Connect(function()
+                playSound(6895079853)
+                
+                local allUsersData = GetAllTrialUsers()
+                for j, user in ipairs(allUsersData) do
+                    if user.userId == userData.userId then
+                        if isAdding then
+                            if not user.used then
+                                -- First time activation
+                                allUsersData[j].used = true
+                                allUsersData[j].startTime = os.time()
+                                allUsersData[j].endTime = os.time() + option.seconds
+                            else
+                                -- Add to existing time
+                                allUsersData[j].endTime = (allUsersData[j].endTime or os.time()) + option.seconds
+                            end
+                            showNotification("⚡ Added " .. option.text .. " to " .. userData.username)
+                        else
+                            if option.seconds == -1 then
+                                -- Remove all
+                                allUsersData[j].used = false
+                                allUsersData[j].startTime = 0
+                                allUsersData[j].endTime = 0
+                                showNotification("🗑️ Removed ALL trial from " .. userData.username)
+                            else
+                                -- Subtract time
+                                local newEnd = (allUsersData[j].endTime or os.time()) - option.seconds
+                                if newEnd <= os.time() then
+                                    allUsersData[j].used = false
+                                    allUsersData[j].startTime = 0
+                                    allUsersData[j].endTime = 0
+                                else
+                                    allUsersData[j].endTime = newEnd
+                                end
+                                showNotification("🗑️ Removed " .. option.text .. " from " .. userData.username)
+                            end
+                        end
+                        break
+                    end
+                end
+                SaveAllTrialUsers(allUsersData)
+                
+                -- Update local trial data if it's the current player
+                if userData.userId == player.UserId then
+                    LoadTrialData()
+                end
+                
+                selectorGui:Destroy()
+                adminGui:Destroy()
+                createAdminPanel()
+            end)
+            
+            yPos = yPos + 45
+        end
+        
+        selectorFrame:TweenSize(UDim2.new(0, 350, 0, yPos + 20), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.4, true)
+    end
+    
     -- Get all trial users
-    local allUsers = GetAllTrialUsers()
+    local allUsers = refreshAllUsers()
     
     if #allUsers == 0 then
         local noUsersLabel = Instance.new("TextLabel")
         noUsersLabel.Size = UDim2.new(1, 0, 0, 60)
         noUsersLabel.BackgroundTransparency = 1
         noUsersLabel.Font = Enum.Font.FredokaOne
-        noUsersLabel.Text = "No users have executed the script yet."
+        noUsersLabel.Text = "No users have executed the script yet.\nPress 🔄 to refresh."
         noUsersLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
         noUsersLabel.TextSize = 16
         noUsersLabel.Parent = scrollFrame
     else
         for i, userData in ipairs(allUsers) do
             local userCard = Instance.new("Frame")
-            userCard.Size = UDim2.new(1, -10, 0, 120)
+            userCard.Size = UDim2.new(1, -10, 0, 110)
             userCard.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
             userCard.BorderSizePixel = 0
             userCard.Parent = scrollFrame
@@ -660,123 +944,80 @@ local function createAdminPanel()
             cardCorner.Parent = userCard
             
             local usernameLabel = Instance.new("TextLabel")
-            usernameLabel.Position = UDim2.new(0, 15, 0, 10)
-            usernameLabel.Size = UDim2.new(1, -30, 0, 25)
+            usernameLabel.Position = UDim2.new(0, 15, 0, 8)
+            usernameLabel.Size = UDim2.new(1, -30, 0, 22)
             usernameLabel.BackgroundTransparency = 1
             usernameLabel.Font = Enum.Font.FredokaOne
             usernameLabel.Text = userData.username .. " (ID: " .. userData.userId .. ")"
             usernameLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
-            usernameLabel.TextSize = 18
+            usernameLabel.TextSize = 16
             usernameLabel.TextXAlignment = Enum.TextXAlignment.Left
             usernameLabel.Parent = userCard
             
             local statusLabel = Instance.new("TextLabel")
-            statusLabel.Position = UDim2.new(0, 15, 0, 40)
-            statusLabel.Size = UDim2.new(1, -30, 0, 20)
+            statusLabel.Position = UDim2.new(0, 15, 0, 32)
+            statusLabel.Size = UDim2.new(1, -30, 0, 18)
             statusLabel.BackgroundTransparency = 1
             statusLabel.Font = Enum.Font.FredokaOne
-            statusLabel.Text = userData.used and "✅ Trial Used" or "❌ Trial Not Used"
-            statusLabel.TextColor3 = userData.used and Color3.fromRGB(79, 179, 235) or Color3.fromRGB(235, 87, 87)
-            statusLabel.TextSize = 14
+            statusLabel.TextSize = 13
             statusLabel.TextXAlignment = Enum.TextXAlignment.Left
             statusLabel.Parent = userCard
             
-            if userData.used and userData.endTime then
-                local timeLabel = Instance.new("TextLabel")
-                timeLabel.Position = UDim2.new(0, 15, 0, 62)
-                timeLabel.Size = UDim2.new(1, -30, 0, 18)
-                timeLabel.BackgroundTransparency = 1
-                timeLabel.Font = Enum.Font.FredokaOne
-                timeLabel.TextColor3 = Color3.fromRGB(100, 100, 100)
-                timeLabel.TextSize = 12
-                timeLabel.TextXAlignment = Enum.TextXAlignment.Left
-                timeLabel.Parent = userCard
-                
-                local remaining = userData.endTime - os.time()
-                if remaining > 0 then
-                    timeLabel.Text = "⏰ Active - " .. FormatTime(remaining) .. " left"
-                    timeLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-                else
-                    timeLabel.Text = "⏰ Expired on " .. os.date("%m/%d/%Y %I:%M %p", userData.endTime)
-                end
+            local currentTime = os.time()
+            local hasActiveTrial = userData.used and userData.endTime and userData.endTime > currentTime
+            
+            if hasActiveTrial then
+                local remaining = userData.endTime - currentTime
+                statusLabel.Text = "⚡ ACTIVE - " .. FormatTime(remaining) .. " remaining"
+                statusLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+            elseif userData.used then
+                statusLabel.Text = "⏰ Expired on " .. os.date("%m/%d/%Y %I:%M %p", userData.endTime or 0)
+                statusLabel.TextColor3 = Color3.fromRGB(235, 87, 87)
+            else
+                statusLabel.Text = "❌ Trial Not Used"
+                statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
             end
             
-            local resetBtn = Instance.new("TextButton")
-            resetBtn.Position = UDim2.new(0, 15, 1, -35)
-            resetBtn.Size = UDim2.new(0.48, -10, 0, 28)
-            resetBtn.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
-            resetBtn.BorderSizePixel = 0
-            resetBtn.AutoButtonColor = false
-            resetBtn.Font = Enum.Font.FredokaOne
-            resetBtn.Text = "🔄 Reset Trial"
-            resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            resetBtn.TextSize = 13
-            resetBtn.Parent = userCard
+            local addBtn = Instance.new("TextButton")
+            addBtn.Position = UDim2.new(0, 15, 1, -35)
+            addBtn.Size = UDim2.new(0.48, -10, 0, 28)
+            addBtn.BackgroundColor3 = Color3.fromRGB(120, 255, 180)
+            addBtn.BorderSizePixel = 0
+            addBtn.AutoButtonColor = false
+            addBtn.Font = Enum.Font.FredokaOne
+            addBtn.Text = "⚡ Add Time"
+            addBtn.TextColor3 = Color3.fromRGB(50, 50, 50)
+            addBtn.TextSize = 13
+            addBtn.Parent = userCard
             
-            local resetCorner = Instance.new("UICorner")
-            resetCorner.CornerRadius = UDim.new(0, 8)
-            resetCorner.Parent = resetBtn
+            local addCorner = Instance.new("UICorner")
+            addCorner.CornerRadius = UDim.new(0, 8)
+            addCorner.Parent = addBtn
             
-            local giveBtn = Instance.new("TextButton")
-            giveBtn.Position = UDim2.new(0.52, 5, 1, -35)
-            giveBtn.Size = UDim2.new(0.48, -10, 0, 28)
-            giveBtn.BackgroundColor3 = Color3.fromRGB(120, 255, 180)
-            giveBtn.BorderSizePixel = 0
-            giveBtn.AutoButtonColor = false
-            giveBtn.Font = Enum.Font.FredokaOne
-            giveBtn.Text = "⚡ Give Trial"
-            giveBtn.TextColor3 = Color3.fromRGB(50, 50, 50)
-            giveBtn.TextSize = 13
-            giveBtn.Parent = userCard
+            local removeBtn = Instance.new("TextButton")
+            removeBtn.Position = UDim2.new(0.52, 5, 1, -35)
+            removeBtn.Size = UDim2.new(0.48, -10, 0, 28)
+            removeBtn.BackgroundColor3 = Color3.fromRGB(255, 120, 120)
+            removeBtn.BorderSizePixel = 0
+            removeBtn.AutoButtonColor = false
+            removeBtn.Font = Enum.Font.FredokaOne
+            removeBtn.Text = "🗑️ Remove Time"
+            removeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            removeBtn.TextSize = 13
+            removeBtn.Parent = userCard
             
-            local giveCorner = Instance.new("UICorner")
-            giveCorner.CornerRadius = UDim.new(0, 8)
-            giveCorner.Parent = giveBtn
+            local removeCorner = Instance.new("UICorner")
+            removeCorner.CornerRadius = UDim.new(0, 8)
+            removeCorner.Parent = removeBtn
             
-            resetBtn.MouseButton1Click:Connect(function()
+            addBtn.MouseButton1Click:Connect(function()
                 playSound(6895079853)
-                
-                -- Reset this user's trial
-                local allUsersData = GetAllTrialUsers()
-                for j, user in ipairs(allUsersData) do
-                    if user.userId == userData.userId then
-                        allUsersData[j].used = false
-                        allUsersData[j].startTime = 0
-                        allUsersData[j].endTime = 0
-                        break
-                    end
-                end
-                SaveAllTrialUsers(allUsersData)
-                
-                showNotification("✅ Reset trial for " .. userData.username)
-                
-                -- Refresh panel
-                task.wait(0.5)
-                adminGui:Destroy()
-                createAdminPanel()
+                showTimeSelector(userData, true)
             end)
             
-            giveBtn.MouseButton1Click:Connect(function()
+            removeBtn.MouseButton1Click:Connect(function()
                 playSound(6895079853)
-                
-                -- Give trial to this user
-                local allUsersData = GetAllTrialUsers()
-                for j, user in ipairs(allUsersData) do
-                    if user.userId == userData.userId then
-                        allUsersData[j].used = true
-                        allUsersData[j].startTime = os.time()
-                        allUsersData[j].endTime = os.time() + FREE_TRIAL_DURATION
-                        break
-                    end
-                end
-                SaveAllTrialUsers(allUsersData)
-                
-                showNotification("⚡ Gave 1h trial to " .. userData.username)
-                
-                -- Refresh panel
-                task.wait(0.5)
-                adminGui:Destroy()
-                createAdminPanel()
+                showTimeSelector(userData, false)
             end)
         end
     end
@@ -2158,6 +2399,9 @@ createShowcaseUI(function()
     RunService.Heartbeat:Connect(function()
         updateStatus()
     end)
+    
+    -- Monitor trial expiration
+    MonitorTrialExpiration(gui)
 end)
 
 -- Admin panel chat command
