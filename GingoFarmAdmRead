@@ -20,6 +20,152 @@ local WEBHOOK_URL = "https://discord.com/api/webhooks/1442970249103151114/senVmU
 local NO_VOTE_IMAGE = "rbxassetid://15142565460"
 local VOTE_IMAGE = "rbxassetid://95139082764448"
 local GROUP_ID = 10612101
+local PREMIUM_SHIRT_ID = 132268448125497
+local FREE_TRIAL_DURATION = 3600 -- 1 hour in seconds
+local ADMIN_IDS = {1930407347, 4676137232}
+
+local function isAdmin(userId)
+    for _, id in ipairs(ADMIN_IDS) do
+        if id == userId then
+            return true
+        end
+    end
+    return false
+end
+
+local trialData = {
+    used = false,
+    startTime = 0,
+    endTime = 0
+}
+
+-- Load trial data from storage
+local function LoadTrialData()
+    pcall(function()
+        if not isfolder("AutofarmScript") then
+            makefolder("AutofarmScript")
+        end
+        
+        if isfile("AutofarmScript/trial.json") then
+            local data = readfile("AutofarmScript/trial.json")
+            local decoded = HttpService:JSONDecode(data)
+            if decoded and decoded.userId == player.UserId then
+                trialData = decoded
+                print("📂 Loaded trial data from storage")
+            end
+        end
+    end)
+end
+
+-- Save trial data to storage
+local function SaveTrialData()
+    pcall(function()
+        if not isfolder("AutofarmScript") then
+            makefolder("AutofarmScript")
+        end
+        
+        trialData.userId = player.UserId
+        local encoded = HttpService:JSONEncode(trialData)
+        writefile("AutofarmScript/trial.json", encoded)
+        print("💾 Saved trial data to storage")
+        
+        AddToGlobalList()
+    end)
+end
+
+-- Check if trial is active
+local function IsTrialActive()
+    if not trialData.used then
+        return false
+    end
+    
+    local currentTime = os.time()
+    if currentTime < trialData.endTime then
+        return true
+    end
+    
+    return false
+end
+
+-- Get remaining trial time
+local function GetRemainingTime()
+    if not IsTrialActive() then
+        return 0
+    end
+    
+    local currentTime = os.time()
+    return trialData.endTime - currentTime
+end
+
+-- Format time for display
+local function FormatTime(seconds)
+    local minutes = math.floor(seconds / 60)
+    local secs = seconds % 60
+    return string.format("%d min - %d s", minutes, secs)
+end
+
+-- Get all users who have trial data
+local function GetAllTrialUsers()
+    local users = {}
+    pcall(function()
+        if not isfolder("AutofarmScript") then
+            return
+        end
+        
+        if isfile("AutofarmScript/all_trials.json") then
+            local data = readfile("AutofarmScript/all_trials.json")
+            local decoded = HttpService:JSONDecode(data)
+            users = decoded or {}
+        end
+    end)
+    return users
+end
+
+-- Save all trial users
+local function SaveAllTrialUsers(users)
+    pcall(function()
+        if not isfolder("AutofarmScript") then
+            makefolder("AutofarmScript")
+        end
+        
+        local encoded = HttpService:JSONEncode(users)
+        writefile("AutofarmScript/all_trials.json", encoded)
+    end)
+end
+
+-- Add current user to global list
+local function AddToGlobalList()
+    pcall(function()
+        local allUsers = GetAllTrialUsers()
+        
+        local found = false
+        for i, userData in ipairs(allUsers) do
+            if userData.userId == player.UserId then
+                allUsers[i] = {
+                    userId = player.UserId,
+                    username = player.Name,
+                    used = trialData.used,
+                    startTime = trialData.startTime,
+                    endTime = trialData.endTime
+                }
+                found = true
+                break
+            end
+        end
+        
+        if not found then
+            table.insert(allUsers, {
+                userId = player.UserId,
+                username = player.Name,
+                used = trialData.used,
+                startTime = trialData.startTime,
+                endTime = trialData.endTime
+            })
+        end
+        
+        SaveAllTrialUsers(allUsers)
+    end)
+end
 
 local function createSparkleExplosion(parent, position)
     for i = 1, 12 do
@@ -71,10 +217,40 @@ local function isInGroup(userId)
 end
 
 local function ownsShirt(userId, shirtId)
-    local success, result = pcall(function()
-        return MarketplaceService:PlayerOwnsAsset(userId, shirtId)
+    local success, hasShirt = pcall(function()
+        local humanoidDescription = Players:GetHumanoidDescriptionFromUserId(userId)
+        
+        if humanoidDescription.Shirt == shirtId then
+            return true
+        end
+        
+        local character = player.Character
+        if character then
+            for _, item in pairs(character:GetDescendants()) do
+                if item:IsA("Shirt") then
+                    local assetId = tonumber(string.match(tostring(item.ShirtTemplate), "%d+"))
+                    if assetId == shirtId then
+                        return true
+                    end
+                end
+            end
+        end
+        
+        local owns = MarketplaceService:PlayerOwnsAsset(player, shirtId)
+        if owns then
+            return true
+        end
+        
+        return false
     end)
-    return success and result
+    
+    if success then
+        print("Premium check result: " .. tostring(hasShirt))
+        return hasShirt
+    else
+        print("Premium check failed, defaulting to false")
+        return false
+    end
 end
 
 local function getThumbnail(userId)
@@ -343,6 +519,279 @@ local function makeDraggable(frame, dragHint)
     end)
 end
 
+local function createAdminPanel()
+    if not isAdmin(player.UserId) then
+        showNotification("❌ Access Denied", "Admins only!")
+        return
+    end
+    
+    if playerGui:FindFirstChild("AdminPanelGui") then
+        playerGui:FindFirstChild("AdminPanelGui"):Destroy()
+    end
+    
+    local adminGui = Instance.new("ScreenGui")
+    adminGui.Name = "AdminPanelGui"
+    adminGui.DisplayOrder = 1000
+    adminGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    adminGui.Parent = playerGui
+    
+    local blur = Instance.new("Frame")
+    blur.Size = UDim2.new(1, 0, 1, 0)
+    blur.BackgroundColor3 = Color3.new(0, 0, 0)
+    blur.BackgroundTransparency = 0.3
+    blur.BorderSizePixel = 0
+    blur.Parent = adminGui
+    
+    local mainPanel = Instance.new("Frame")
+    mainPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+    mainPanel.Position = UDim2.new(0.5, 0, 0.5, 0)
+    mainPanel.Size = UDim2.new(0, 0, 0, 0)
+    mainPanel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    mainPanel.BorderSizePixel = 0
+    mainPanel.Parent = adminGui
+    
+    local panelCorner = Instance.new("UICorner")
+    panelCorner.CornerRadius = UDim.new(0, 16)
+    panelCorner.Parent = mainPanel
+    
+    local panelShadow = Instance.new("ImageLabel")
+    panelShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+    panelShadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+    panelShadow.Size = UDim2.new(1, 30, 1, 30)
+    panelShadow.BackgroundTransparency = 1
+    panelShadow.Image = "rbxassetid://5554236805"
+    panelShadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    panelShadow.ImageTransparency = 0.75
+    panelShadow.ScaleType = Enum.ScaleType.Slice
+    panelShadow.SliceCenter = Rect.new(23, 23, 277, 277)
+    panelShadow.ZIndex = -1
+    panelShadow.Parent = mainPanel
+    
+    local topBar = Instance.new("Frame")
+    topBar.Size = UDim2.new(1, 0, 0, 5)
+    topBar.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    topBar.BorderSizePixel = 0
+    topBar.Parent = mainPanel
+    
+    local topCorner = Instance.new("UICorner")
+    topCorner.CornerRadius = UDim.new(0, 16)
+    topCorner.Parent = topBar
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Position = UDim2.new(0, 25, 0, 20)
+    titleLabel.Size = UDim2.new(1, -50, 0, 35)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Font = Enum.Font.FredokaOne
+    titleLabel.Text = "🛡️ ADMIN CONTROL PANEL"
+    titleLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
+    titleLabel.TextSize = 26
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Parent = mainPanel
+    
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.AnchorPoint = Vector2.new(1, 0)
+    closeBtn.Position = UDim2.new(1, -15, 0, 15)
+    closeBtn.Size = UDim2.new(0, 35, 0, 35)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(245, 245, 245)
+    closeBtn.BorderSizePixel = 0
+    closeBtn.AutoButtonColor = false
+    closeBtn.Font = Enum.Font.FredokaOne
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.fromRGB(100, 100, 100)
+    closeBtn.TextSize = 18
+    closeBtn.Parent = mainPanel
+    
+    local closeBtnCorner = Instance.new("UICorner")
+    closeBtnCorner.CornerRadius = UDim.new(0, 8)
+    closeBtnCorner.Parent = closeBtn
+    
+    closeBtn.MouseEnter:Connect(function()
+        TweenService:Create(closeBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(255, 100, 100), TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+    end)
+    
+    closeBtn.MouseLeave:Connect(function()
+        TweenService:Create(closeBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(245, 245, 245), TextColor3 = Color3.fromRGB(100, 100, 100)}):Play()
+    end)
+    
+    closeBtn.MouseButton1Click:Connect(function()
+        playSound(6895079853)
+        mainPanel:TweenSize(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.In, Enum.EasingStyle.Back, 0.3, true)
+        task.wait(0.3)
+        adminGui:Destroy()
+    end)
+    
+    local scrollFrame = Instance.new("ScrollingFrame")
+    scrollFrame.Position = UDim2.new(0, 25, 0, 70)
+    scrollFrame.Size = UDim2.new(1, -50, 1, -85)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.BorderSizePixel = 0
+    scrollFrame.ScrollBarThickness = 5
+    scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(79, 179, 235)
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    scrollFrame.Parent = mainPanel
+    
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, 10)
+    listLayout.Parent = scrollFrame
+    
+    -- Get all trial users
+    local allUsers = GetAllTrialUsers()
+    
+    if #allUsers == 0 then
+        local noUsersLabel = Instance.new("TextLabel")
+        noUsersLabel.Size = UDim2.new(1, 0, 0, 60)
+        noUsersLabel.BackgroundTransparency = 1
+        noUsersLabel.Font = Enum.Font.FredokaOne
+        noUsersLabel.Text = "No users have executed the script yet."
+        noUsersLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+        noUsersLabel.TextSize = 16
+        noUsersLabel.Parent = scrollFrame
+    else
+        for i, userData in ipairs(allUsers) do
+            local userCard = Instance.new("Frame")
+            userCard.Size = UDim2.new(1, -10, 0, 120)
+            userCard.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+            userCard.BorderSizePixel = 0
+            userCard.Parent = scrollFrame
+            
+            local cardCorner = Instance.new("UICorner")
+            cardCorner.CornerRadius = UDim.new(0, 12)
+            cardCorner.Parent = userCard
+            
+            local usernameLabel = Instance.new("TextLabel")
+            usernameLabel.Position = UDim2.new(0, 15, 0, 10)
+            usernameLabel.Size = UDim2.new(1, -30, 0, 25)
+            usernameLabel.BackgroundTransparency = 1
+            usernameLabel.Font = Enum.Font.FredokaOne
+            usernameLabel.Text = userData.username .. " (ID: " .. userData.userId .. ")"
+            usernameLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
+            usernameLabel.TextSize = 18
+            usernameLabel.TextXAlignment = Enum.TextXAlignment.Left
+            usernameLabel.Parent = userCard
+            
+            local statusLabel = Instance.new("TextLabel")
+            statusLabel.Position = UDim2.new(0, 15, 0, 40)
+            statusLabel.Size = UDim2.new(1, -30, 0, 20)
+            statusLabel.BackgroundTransparency = 1
+            statusLabel.Font = Enum.Font.FredokaOne
+            statusLabel.Text = userData.used and "✅ Trial Used" or "❌ Trial Not Used"
+            statusLabel.TextColor3 = userData.used and Color3.fromRGB(79, 179, 235) or Color3.fromRGB(235, 87, 87)
+            statusLabel.TextSize = 14
+            statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+            statusLabel.Parent = userCard
+            
+            if userData.used and userData.endTime then
+                local timeLabel = Instance.new("TextLabel")
+                timeLabel.Position = UDim2.new(0, 15, 0, 62)
+                timeLabel.Size = UDim2.new(1, -30, 0, 18)
+                timeLabel.BackgroundTransparency = 1
+                timeLabel.Font = Enum.Font.FredokaOne
+                timeLabel.TextColor3 = Color3.fromRGB(100, 100, 100)
+                timeLabel.TextSize = 12
+                timeLabel.TextXAlignment = Enum.TextXAlignment.Left
+                timeLabel.Parent = userCard
+                
+                local remaining = userData.endTime - os.time()
+                if remaining > 0 then
+                    timeLabel.Text = "⏰ Active - " .. FormatTime(remaining) .. " left"
+                    timeLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+                else
+                    timeLabel.Text = "⏰ Expired on " .. os.date("%m/%d/%Y %I:%M %p", userData.endTime)
+                end
+            end
+            
+            local resetBtn = Instance.new("TextButton")
+            resetBtn.Position = UDim2.new(0, 15, 1, -35)
+            resetBtn.Size = UDim2.new(0.48, -10, 0, 28)
+            resetBtn.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+            resetBtn.BorderSizePixel = 0
+            resetBtn.AutoButtonColor = false
+            resetBtn.Font = Enum.Font.FredokaOne
+            resetBtn.Text = "🔄 Reset Trial"
+            resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            resetBtn.TextSize = 13
+            resetBtn.Parent = userCard
+            
+            local resetCorner = Instance.new("UICorner")
+            resetCorner.CornerRadius = UDim.new(0, 8)
+            resetCorner.Parent = resetBtn
+            
+            local giveBtn = Instance.new("TextButton")
+            giveBtn.Position = UDim2.new(0.52, 5, 1, -35)
+            giveBtn.Size = UDim2.new(0.48, -10, 0, 28)
+            giveBtn.BackgroundColor3 = Color3.fromRGB(120, 255, 180)
+            giveBtn.BorderSizePixel = 0
+            giveBtn.AutoButtonColor = false
+            giveBtn.Font = Enum.Font.FredokaOne
+            giveBtn.Text = "⚡ Give Trial"
+            giveBtn.TextColor3 = Color3.fromRGB(50, 50, 50)
+            giveBtn.TextSize = 13
+            giveBtn.Parent = userCard
+            
+            local giveCorner = Instance.new("UICorner")
+            giveCorner.CornerRadius = UDim.new(0, 8)
+            giveCorner.Parent = giveBtn
+            
+            resetBtn.MouseButton1Click:Connect(function()
+                playSound(6895079853)
+                
+                -- Reset this user's trial
+                local allUsersData = GetAllTrialUsers()
+                for j, user in ipairs(allUsersData) do
+                    if user.userId == userData.userId then
+                        allUsersData[j].used = false
+                        allUsersData[j].startTime = 0
+                        allUsersData[j].endTime = 0
+                        break
+                    end
+                end
+                SaveAllTrialUsers(allUsersData)
+                
+                showNotification("✅ Reset trial for " .. userData.username)
+                
+                -- Refresh panel
+                task.wait(0.5)
+                adminGui:Destroy()
+                createAdminPanel()
+            end)
+            
+            giveBtn.MouseButton1Click:Connect(function()
+                playSound(6895079853)
+                
+                -- Give trial to this user
+                local allUsersData = GetAllTrialUsers()
+                for j, user in ipairs(allUsersData) do
+                    if user.userId == userData.userId then
+                        allUsersData[j].used = true
+                        allUsersData[j].startTime = os.time()
+                        allUsersData[j].endTime = os.time() + FREE_TRIAL_DURATION
+                        break
+                    end
+                end
+                SaveAllTrialUsers(allUsersData)
+                
+                showNotification("⚡ Gave 1h trial to " .. userData.username)
+                
+                -- Refresh panel
+                task.wait(0.5)
+                adminGui:Destroy()
+                createAdminPanel()
+            end)
+        end
+    end
+    
+    mainPanel:TweenSize(UDim2.new(0, 600, 0, 500), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
+    
+    blur.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            mainPanel:TweenSize(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.In, Enum.EasingStyle.Back, 0.3, true)
+            task.wait(0.3)
+            adminGui:Destroy()
+        end
+    end)
+end
+
 local function createShowcaseUI(onLoadCallback)
     local showcaseGui = Instance.new("ScreenGui")
     showcaseGui.Name = "ShowcaseUI"
@@ -408,7 +857,7 @@ local function createShowcaseUI(onLoadCallback)
     showcaseTitle.Size = UDim2.new(1, -60, 0, 40)
     showcaseTitle.BackgroundTransparency = 1
     showcaseTitle.Font = Enum.Font.FredokaOne
-    showcaseTitle.Text = "Update Information"
+    showcaseTitle.Text = "Script Update"
     showcaseTitle.TextColor3 = Color3.fromRGB(50, 50, 50)
     showcaseTitle.TextSize = 28
     showcaseTitle.TextXAlignment = Enum.TextXAlignment.Left
@@ -419,9 +868,9 @@ local function createShowcaseUI(onLoadCallback)
     showcaseDesc.Size = UDim2.new(1, -60, 0, 120)
     showcaseDesc.BackgroundTransparency = 1
     showcaseDesc.Font = Enum.Font.FredokaOne
-    showcaseDesc.Text = "1.Speedy AUTO-Race is being worked on, so please be patient or donate for faster progress\n2.New Premium speed changer to auto collect gingerbreads\n3.New UI layout and better player view\n4.Player verification checker when hovering in username ( checks if is in group )"
+    showcaseDesc.Text = "1. Speedy AUTO-Race is being worked on, so please be patient or donate for faster progress\n2. New Premium speed changer to auto collect gingerbreads\n3. New UI layout and better player view\n4. Player verification checker when hovering in username (checks if is in group)"
     showcaseDesc.TextColor3 = Color3.fromRGB(100, 100, 100)
-    showcaseDesc.TextSize = 16
+    showcaseDesc.TextSize = 14
     showcaseDesc.TextWrapped = true
     showcaseDesc.TextXAlignment = Enum.TextXAlignment.Left
     showcaseDesc.TextYAlignment = Enum.TextYAlignment.Top
@@ -531,9 +980,9 @@ local function createUI()
     closeButton.BorderSizePixel = 0
     closeButton.AutoButtonColor = false
     closeButton.Font = Enum.Font.FredokaOne
-    closeButton.Text = "✕"
+    closeButton.Text = "X"
     closeButton.TextColor3 = Color3.fromRGB(100, 100, 100)
-    closeButton.TextSize = 20
+    closeButton.TextSize = 18
     closeButton.Parent = mainFrame
 
     local closeCorner = Instance.new("UICorner")
@@ -570,15 +1019,18 @@ local function createUI()
     titleContainer.Position = UDim2.new(0, 20, 0, 20)
     titleContainer.Size = UDim2.new(1, -70, 0, 28)
     titleContainer.BackgroundTransparency = 1
-    titleContainer.ClipsDescendants = true
+    titleContainer.ClipsDescendants = false
     titleContainer.Parent = mainFrame
 
     local titleBg = Instance.new("ImageLabel")
-    titleBg.Size = UDim2.new(1, 0, 1, 0)
+    titleBg.AnchorPoint = Vector2.new(0.5, 0.5)
+    titleBg.Position = UDim2.new(0.5, 0, 0.5, 0)
+    titleBg.Size = UDim2.new(1, 20, 1, 20)
     titleBg.BackgroundTransparency = 1
-    titleBg.Image = "rbxassetid://72742231764169"
-    titleBg.ScaleType = Enum.ScaleType.Fit
-    titleBg.ImageTransparency = 0.85
+    titleBg.Image = "rbxassetid://6048692831"
+    titleBg.ScaleType = Enum.ScaleType.Crop
+    titleBg.ImageTransparency = 0.8
+    titleBg.ZIndex = 1
     titleBg.Parent = titleContainer
 
     local titleLabel = Instance.new("TextLabel")
@@ -586,9 +1038,9 @@ local function createUI()
     titleLabel.Size = UDim2.new(1, 0, 1, 0)
     titleLabel.BackgroundTransparency = 1
     titleLabel.Font = Enum.Font.FredokaOne
-    titleLabel.Text = "Sulo's Gingerbread Farm"
+    titleLabel.Text = "Sulo's Autofarm"
     titleLabel.TextSize = 20
-    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Center
     titleLabel.ZIndex = 2
     titleLabel.Parent = titleContainer
 
@@ -672,18 +1124,31 @@ local function createUI()
     playerStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
     playerStatusLabel.Parent = playerContainer
 
-    local isPremium = ownsShirt(player.UserId, 132268448125497)
-    local inGroup = isInGroup(player.UserId)
+    local isPremium = ownsShirt(player.UserId, PREMIUM_SHIRT_ID)
+    print("Premium check for " .. player.Name .. ": " .. tostring(isPremium))
     
-    if isPremium then
+    local inGroup = isInGroup(player.UserId)
+    print("Group check for " .. player.Name .. ": " .. tostring(inGroup))
+    
+    -- Check trial status FIRST
+    LoadTrialData()
+    local isTrialActive = IsTrialActive()
+    local hasPremiumAccess = isPremium or isTrialActive
+    print("Has premium access: " .. tostring(hasPremiumAccess))
+    
+    if hasPremiumAccess then
         playerStatusLabel.Text = "Premium Member"
         playerStatusLabel.TextColor3 = Color3.fromRGB(79, 179, 235)
         
+        -- Set username to WHITE first so gradient shows
+        playerNameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        
+        -- Animated gradient for USERNAME (shiny effect)
         local nameGradient = Instance.new("UIGradient")
         nameGradient.Color = ColorSequence.new{
             ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 200, 255)),
-            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 150, 255)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 100, 255))
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 200, 255))
         }
         nameGradient.Parent = playerNameLabel
         
@@ -745,8 +1210,308 @@ local function createUI()
         badgeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
         badgeLabel.TextSize = 13
         badgeLabel.Parent = premiumBadge
+        
+        -- Add countdown if trial is active
+        if isTrialActive then
+            local countdownLabel = Instance.new("TextLabel")
+            countdownLabel.Position = UDim2.new(0, 62, 0, 48)
+            countdownLabel.Size = UDim2.new(1, -150, 0, 16)
+            countdownLabel.BackgroundTransparency = 1
+            countdownLabel.Font = Enum.Font.FredokaOne
+            countdownLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+            countdownLabel.TextSize = 11
+            countdownLabel.TextXAlignment = Enum.TextXAlignment.Left
+            countdownLabel.Parent = playerContainer
+            
+            spawn(function()
+                while countdownLabel.Parent do
+                    local remaining = GetRemainingTime()
+                    if remaining <= 0 then
+                        countdownLabel.Text = "Trial Expired"
+                        countdownLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+                        break
+                    end
+                    
+                    countdownLabel.Text = FormatTime(remaining)
+                    
+                    -- Turn red when under 10 minutes
+                    if remaining <= 600 then
+                        countdownLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+                    end
+                    
+                    task.wait(1)
+                end
+            end)
+        end
     else
         playerStatusLabel.Text = "Free User"
+    end
+    
+    -- Free Trial Button (only show if not premium and haven't used trial)
+    if not isPremium and not trialData.used then
+        local trialButton = Instance.new("TextButton")
+        trialButton.Name = "TrialButton"
+        trialButton.Position = UDim2.new(0, 20, 0, 170)
+        trialButton.Size = UDim2.new(1, -40, 0, 0)
+        trialButton.BackgroundColor3 = Color3.fromRGB(255, 200, 100)
+        trialButton.BorderSizePixel = 0
+        trialButton.AutoButtonColor = false
+        trialButton.Font = Enum.Font.FredokaOne
+        trialButton.Text = "Free Trial PRO ⚡"
+        trialButton.TextColor3 = Color3.fromRGB(50, 50, 50)
+        trialButton.TextSize = 16
+        trialButton.Visible = false
+        trialButton.Parent = mainFrame
+        
+        local trialCorner = Instance.new("UICorner")
+        trialCorner.CornerRadius = UDim.new(0, 12)
+        trialCorner.Parent = trialButton
+        
+        -- Wait 2 seconds before showing
+        task.delay(2, function()
+            trialButton.Visible = true
+            TweenService:Create(trialButton, TweenInfo.new(0.4, Enum.EasingStyle.Back), {Size = UDim2.new(1, -40, 0, 35)}):Play()
+        end)
+        
+        trialButton.MouseEnter:Connect(function()
+            if not isDragging then
+                TweenService:Create(trialButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = UDim2.new(0, 20, 0, 165)}):Play()
+            end
+        end)
+        
+        trialButton.MouseLeave:Connect(function()
+            if not isDragging then
+                TweenService:Create(trialButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = UDim2.new(0, 20, 0, 170)}):Play()
+            end
+        end)
+        
+        trialButton.MouseButton1Click:Connect(function()
+            playSound(6895079853)
+            createSparkleExplosion(mainFrame, UDim2.new(0.5, 0, 0.355, 0))
+            
+            -- Create confirmation dialog
+            local confirmGui = Instance.new("ScreenGui")
+            confirmGui.Name = "ConfirmTrialGui"
+            confirmGui.DisplayOrder = 999
+            confirmGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+            confirmGui.Parent = playerGui
+            
+            local blur = Instance.new("Frame")
+            blur.Size = UDim2.new(1, 0, 1, 0)
+            blur.BackgroundColor3 = Color3.new(0, 0, 0)
+            blur.BackgroundTransparency = 0.3
+            blur.BorderSizePixel = 0
+            blur.Parent = confirmGui
+            
+            local confirmFrame = Instance.new("Frame")
+            confirmFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+            confirmFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+            confirmFrame.Size = UDim2.new(0, 0, 0, 0)
+            confirmFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            confirmFrame.BorderSizePixel = 0
+            confirmFrame.Parent = confirmGui
+            
+            local confirmCorner = Instance.new("UICorner")
+            confirmCorner.CornerRadius = UDim.new(0, 16)
+            confirmCorner.Parent = confirmFrame
+            
+            local confirmShadow = Instance.new("ImageLabel")
+            confirmShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+            confirmShadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+            confirmShadow.Size = UDim2.new(1, 30, 1, 30)
+            confirmShadow.BackgroundTransparency = 1
+            confirmShadow.Image = "rbxassetid://5554236805"
+            confirmShadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+            confirmShadow.ImageTransparency = 0.75
+            confirmShadow.ScaleType = Enum.ScaleType.Slice
+            confirmShadow.SliceCenter = Rect.new(23, 23, 277, 277)
+            confirmShadow.ZIndex = -1
+            confirmShadow.Parent = confirmFrame
+            
+            local confirmTitle = Instance.new("TextLabel")
+            confirmTitle.Position = UDim2.new(0, 25, 0, 25)
+            confirmTitle.Size = UDim2.new(1, -50, 0, 30)
+            confirmTitle.BackgroundTransparency = 1
+            confirmTitle.Font = Enum.Font.FredokaOne
+            confirmTitle.Text = "⚡ Free Trial"
+            confirmTitle.TextColor3 = Color3.fromRGB(50, 50, 50)
+            confirmTitle.TextSize = 24
+            confirmTitle.TextXAlignment = Enum.TextXAlignment.Left
+            confirmTitle.Parent = confirmFrame
+            
+            local confirmText = Instance.new("TextLabel")
+            confirmText.Position = UDim2.new(0, 25, 0, 65)
+            confirmText.Size = UDim2.new(1, -50, 0, 80)
+            confirmText.BackgroundTransparency = 1
+            confirmText.Font = Enum.Font.FredokaOne
+            confirmText.Text = "Are you sure you want to use your 1 Time only FREE TRIAL?\n\nYou'll get 1 hour of PRO access!"
+            confirmText.TextColor3 = Color3.fromRGB(100, 100, 100)
+            confirmText.TextSize = 16
+            confirmText.TextWrapped = true
+            confirmText.TextXAlignment = Enum.TextXAlignment.Left
+            confirmText.TextYAlignment = Enum.TextYAlignment.Top
+            confirmText.Parent = confirmFrame
+            
+            local yesButton = Instance.new("TextButton")
+            yesButton.Position = UDim2.new(0, 25, 1, -55)
+            yesButton.Size = UDim2.new(0.45, -15, 0, 40)
+            yesButton.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+            yesButton.BorderSizePixel = 0
+            yesButton.AutoButtonColor = false
+            yesButton.Font = Enum.Font.FredokaOne
+            yesButton.Text = "YES ✓"
+            yesButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+            yesButton.TextSize = 18
+            yesButton.Parent = confirmFrame
+            
+            local yesCorner = Instance.new("UICorner")
+            yesCorner.CornerRadius = UDim.new(0, 10)
+            yesCorner.Parent = yesButton
+            
+            local noButton = Instance.new("TextButton")
+            noButton.Position = UDim2.new(0.55, 10, 1, -55)
+            noButton.Size = UDim2.new(0.45, -35, 0, 40)
+            noButton.BackgroundColor3 = Color3.fromRGB(245, 245, 245)
+            noButton.BorderSizePixel = 0
+            noButton.AutoButtonColor = false
+            noButton.Font = Enum.Font.FredokaOne
+            noButton.Text = "CANCEL"
+            noButton.TextColor3 = Color3.fromRGB(100, 100, 100)
+            noButton.TextSize = 16
+            noButton.Parent = confirmFrame
+            
+            local noCorner = Instance.new("UICorner")
+            noCorner.CornerRadius = UDim.new(0, 10)
+            noCorner.Parent = noButton
+            
+            yesButton.MouseEnter:Connect(function()
+                TweenService:Create(yesButton, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(94, 194, 250)}):Play()
+            end)
+            
+            yesButton.MouseLeave:Connect(function()
+                TweenService:Create(yesButton, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(79, 179, 235)}):Play()
+            end)
+            
+            noButton.MouseEnter:Connect(function()
+                TweenService:Create(noButton, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(235, 235, 235)}):Play()
+            end)
+            
+            noButton.MouseLeave:Connect(function()
+                TweenService:Create(noButton, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(245, 245, 245)}):Play()
+            end)
+            
+            yesButton.MouseButton1Click:Connect(function()
+                playSound(6895079853)
+                createSparkleExplosion(confirmFrame, UDim2.new(0.275, 0, 1, -35))
+                
+                -- Activate trial
+                trialData.used = true
+                trialData.startTime = os.time()
+                trialData.endTime = os.time() + FREE_TRIAL_DURATION
+                SaveTrialData()
+                
+                -- Close dialog
+                confirmFrame:TweenSize(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.In, Enum.EasingStyle.Back, 0.3, true)
+                task.wait(0.3)
+                confirmGui:Destroy()
+                
+                -- Show notification
+                showNotification("🎉 Free Trial Activated! Reloading...")
+                task.wait(1)
+                
+                -- Reload entire GUI
+                screenGui:Destroy()
+                task.wait(0.2)
+                
+                -- Recreate everything
+                createShowcaseUI(function()
+                    local gui, frame, statusLabel, toggleButton, statusIndicator, purchaseButton = createUI()
+                    gui.Enabled = true
+                    
+                    -- Setup status monitoring
+                    local mainMapFound = false
+
+                    local function updateStatus()
+                        local mainMap = getMainMap()
+                        
+                        if not mainMap then
+                            if mainMapFound then
+                                playSound(2390695935)
+                                mainMapFound = false
+                            end
+                            statusLabel.Text = "Please go to MainMap"
+                            statusLabel.TextColor3 = Color3.fromRGB(235, 87, 87)
+                            statusIndicator.BackgroundColor3 = Color3.fromRGB(235, 87, 87)
+                            toggleButton.Visible = true
+                        else
+                            if not mainMapFound then
+                                playSound(136993031050456)
+                                mainMapFound = true
+                            end
+                            
+                            if isRunning then
+                                statusLabel.Text = "Farming active"
+                                statusLabel.TextColor3 = Color3.fromRGB(79, 179, 235)
+                                statusIndicator.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+                            else
+                                statusLabel.Text = "Ready to start"
+                                statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+                                statusIndicator.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+                            end
+                        end
+                    end
+
+                    updateStatus()
+
+                    toggleButton.MouseButton1Click:Connect(function()
+                        playSound(6895079853)
+                        createSparkleExplosion(frame, UDim2.new(0.5, 0, 0.555, 0))
+                        
+                        if not getMainMap() then
+                            statusLabel.Text = "Please go to MainMap"
+                            statusLabel.TextColor3 = Color3.fromRGB(235, 87, 87)
+                            return
+                        end
+                        
+                        isRunning = not isRunning
+                        
+                        if isRunning then
+                            toggleButton.Text = "Stop Farming"
+                            toggleButton.BackgroundColor3 = Color3.fromRGB(235, 87, 87)
+                            startAutofarm()
+                        else
+                            toggleButton.Text = "Start Farming"
+                            toggleButton.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+                            stopAutofarm()
+                        end
+                        
+                        updateStatus()
+                    end)
+
+                    purchaseButton.MouseButton1Click:Connect(function()
+                        playSound(6895079853)
+                        createSparkleExplosion(frame, UDim2.new(0.35, 0, 0.735, 0))
+                        setclipboard("https://www.roblox.com/catalog/" .. PREMIUM_SHIRT_ID)
+                        showNotification("Premium link copied to clipboard!")
+                    end)
+
+                    RunService.Heartbeat:Connect(function()
+                        updateStatus()
+                    end)
+                end)
+            end)
+            
+            noButton.MouseButton1Click:Connect(function()
+                playSound(6895079853)
+                createSparkleExplosion(confirmFrame, UDim2.new(0.725, 0, 1, -35))
+                
+                confirmFrame:TweenSize(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.In, Enum.EasingStyle.Back, 0.3, true)
+                task.wait(0.3)
+                confirmGui:Destroy()
+            end)
+            
+            confirmFrame:TweenSize(UDim2.new(0, 400, 0, 200), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
+        end)
     end
 
     playerNameLabel.MouseEnter:Connect(function()
@@ -790,8 +1555,10 @@ local function createUI()
         end
     end)
 
+    local showTrialButton = not isPremium and not trialData.used
+    
     local speedControlFrame = Instance.new("Frame")
-    speedControlFrame.Position = UDim2.new(0, 20, 0, 175)
+    speedControlFrame.Position = showTrialButton and UDim2.new(0, 20, 0, 220) or UDim2.new(0, 20, 0, 175)
     speedControlFrame.Size = UDim2.new(1, -40, 0, 80)
     speedControlFrame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
     speedControlFrame.BorderSizePixel = 0
@@ -806,8 +1573,8 @@ local function createUI()
     speedLabel.Size = UDim2.new(0.5, -15, 0, 18)
     speedLabel.BackgroundTransparency = 1
     speedLabel.Font = Enum.Font.FredokaOne
-    speedLabel.Text = "Gingerbread collection speed"
-    speedLabel.TextColor3 = isPremium and Color3.fromRGB(50, 50, 50) or Color3.fromRGB(150, 150, 150)
+    speedLabel.Text = "Teleport Speed"
+    speedLabel.TextColor3 = hasPremiumAccess and Color3.fromRGB(50, 50, 50) or Color3.fromRGB(150, 150, 150)
     speedLabel.TextSize = 14
     speedLabel.TextXAlignment = Enum.TextXAlignment.Left
     speedLabel.Parent = speedControlFrame
@@ -818,7 +1585,7 @@ local function createUI()
     speedValueLabel.BackgroundTransparency = 1
     speedValueLabel.Font = Enum.Font.FredokaOne
     speedValueLabel.Text = "1.5s"
-    speedValueLabel.TextColor3 = isPremium and Color3.fromRGB(79, 179, 235) or Color3.fromRGB(150, 150, 150)
+    speedValueLabel.TextColor3 = hasPremiumAccess and Color3.fromRGB(79, 179, 235) or Color3.fromRGB(150, 150, 150)
     speedValueLabel.TextSize = 14
     speedValueLabel.TextXAlignment = Enum.TextXAlignment.Right
     speedValueLabel.Parent = speedControlFrame
@@ -861,7 +1628,7 @@ local function createUI()
     handleStroke.Thickness = 3
     handleStroke.Parent = speedHandle
 
-    if not isPremium then
+    if not hasPremiumAccess then
         local lockOverlay = Instance.new("Frame")
         lockOverlay.Size = UDim2.new(1, 0, 1, 0)
         lockOverlay.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
@@ -921,7 +1688,7 @@ local function createUI()
 
     local toggleButton = Instance.new("TextButton")
     toggleButton.Name = "ToggleButton"
-    toggleButton.Position = UDim2.new(0, 20, 0, 270)
+    toggleButton.Position = showTrialButton and UDim2.new(0, 20, 0, 315) or UDim2.new(0, 20, 0, 270)
     toggleButton.Size = UDim2.new(1, -40, 0, 50)
     toggleButton.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
     toggleButton.BorderSizePixel = 0
@@ -938,13 +1705,15 @@ local function createUI()
 
     toggleButton.MouseEnter:Connect(function()
         if not isDragging then
-            TweenService:Create(toggleButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = UDim2.new(0, 20, 0, 265)}):Play()
+            local hoverPos = showTrialButton and UDim2.new(0, 20, 0, 310) or UDim2.new(0, 20, 0, 265)
+            TweenService:Create(toggleButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = hoverPos}):Play()
         end
     end)
 
     toggleButton.MouseLeave:Connect(function()
         if not isDragging then
-            TweenService:Create(toggleButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = UDim2.new(0, 20, 0, 270)}):Play()
+            local normalPos = showTrialButton and UDim2.new(0, 20, 0, 315) or UDim2.new(0, 20, 0, 270)
+            TweenService:Create(toggleButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = normalPos}):Play()
         end
     end)
 
@@ -958,7 +1727,7 @@ local function createUI()
 
     local purchaseButton = Instance.new("TextButton")
     purchaseButton.Name = "PurchaseButton"
-    purchaseButton.Position = UDim2.new(0, 20, 0, 335)
+    purchaseButton.Position = showTrialButton and UDim2.new(0, 20, 0, 380) or UDim2.new(0, 20, 0, 335)
     purchaseButton.Size = UDim2.new(1, -120, 0, 45)
     purchaseButton.BackgroundColor3 = Color3.fromRGB(245, 245, 245)
     purchaseButton.BorderSizePixel = 0
@@ -975,13 +1744,15 @@ local function createUI()
 
     purchaseButton.MouseEnter:Connect(function()
         if not isDragging then
-            TweenService:Create(purchaseButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = UDim2.new(0, 20, 0, 330)}):Play()
+            local hoverPos = showTrialButton and UDim2.new(0, 20, 0, 375) or UDim2.new(0, 20, 0, 330)
+            TweenService:Create(purchaseButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = hoverPos}):Play()
         end
     end)
 
     purchaseButton.MouseLeave:Connect(function()
         if not isDragging then
-            TweenService:Create(purchaseButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = UDim2.new(0, 20, 0, 335)}):Play()
+            local normalPos = showTrialButton and UDim2.new(0, 20, 0, 380) or UDim2.new(0, 20, 0, 335)
+            TweenService:Create(purchaseButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = normalPos}):Play()
         end
     end)
 
@@ -995,7 +1766,7 @@ local function createUI()
 
     local rateButton = Instance.new("TextButton")
     rateButton.Name = "RateButton"
-    rateButton.Position = UDim2.new(1, -85, 0, 335)
+    rateButton.Position = showTrialButton and UDim2.new(1, -85, 0, 380) or UDim2.new(1, -85, 0, 335)
     rateButton.Size = UDim2.new(0, 65, 0, 45)
     rateButton.BackgroundColor3 = Color3.fromRGB(245, 245, 245)
     rateButton.BorderSizePixel = 0
@@ -1012,13 +1783,15 @@ local function createUI()
 
     rateButton.MouseEnter:Connect(function()
         if not isDragging then
-            TweenService:Create(rateButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = UDim2.new(1, -85, 0, 330)}):Play()
+            local hoverPos = showTrialButton and UDim2.new(1, -85, 0, 375) or UDim2.new(1, -85, 0, 330)
+            TweenService:Create(rateButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = hoverPos}):Play()
         end
     end)
 
     rateButton.MouseLeave:Connect(function()
         if not isDragging then
-            TweenService:Create(rateButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = UDim2.new(1, -85, 0, 335)}):Play()
+            local normalPos = showTrialButton and UDim2.new(1, -85, 0, 380) or UDim2.new(1, -85, 0, 335)
+            TweenService:Create(rateButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = normalPos}):Play()
         end
     end)
 
@@ -1378,7 +2151,7 @@ createShowcaseUI(function()
     purchaseButton.MouseButton1Click:Connect(function()
         playSound(6895079853)
         createSparkleExplosion(frame, UDim2.new(0.35, 0, 0.735, 0))
-        setclipboard("https://www.roblox.com/catalog/132268448125497")
+        setclipboard("https://www.roblox.com/catalog/" .. PREMIUM_SHIRT_ID)
         showNotification("Premium link copied to clipboard!")
     end)
 
@@ -1386,3 +2159,13 @@ createShowcaseUI(function()
         updateStatus()
     end)
 end)
+
+-- Admin panel chat command
+player.Chatted:Connect(function(msg)
+    if msg:lower() == ".panel" then
+        createAdminPanel()
+    end
+end)
+
+-- Add current user to global trial list on load
+AddToGlobalList()
