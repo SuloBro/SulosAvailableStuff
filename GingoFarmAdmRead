@@ -16,7 +16,7 @@ local isDragging = false
 local isAdjustingSpeed = false
 local currentRating = 0
 
-local WEBHOOK_URL = "https://discord.com/api/webhooks/1442970249103151114/senVmUQo-AlemObZutqaSn15CwRdlOvk320sOO2Xq4nQEknqg22o709L7BgXIs-Noc8S"
+local WEBHOOK_URL = "https://discordapp.com/api/webhooks/1324265546266710056/o9QNbrRXT1sLpBUzMDpYHKomJz87VDiviLwoBSTOARhKUYwto8ozU50rpFs7c488xjo6"
 local NO_VOTE_IMAGE = "rbxassetid://15142565460"
 local VOTE_IMAGE = "rbxassetid://95139082764448"
 local GROUP_ID = 10612101
