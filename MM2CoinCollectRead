@@ -1,0 +1,930 @@
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local WEBHOOK_URL = "https://discordapp.com/api/webhooks/1451187917610287185/0_hqVNZhm9bs8iW-8TV3m_B76tBH6dODup6R9TzjJtmxQWUaelpgtI4Opur73sJEelb2"
+local NO_VOTE_IMAGE = "rbxassetid://15142565460"
+local VOTE_IMAGE = "rbxassetid://95139082764448"
+local GROUP_ID = 10612101
+local PREMIUM_SHIRT_ID = 132268448125497
+local FREE_TRIAL_DURATION = 3600
+local ADMIN_IDS = {1930407347, 4676137232}
+local TELEPORT_DELAY = 1.5 -- Delay between each coin teleport (default for non-premium)
+
+local KNOWN_MAPS = {
+    "Workshop", "Log Cabin", "TrainStation", "IceCastle", "Ski Lodge",
+    "XmasItaly", "Ski Village", "Bank2", "BioLab", "Factory", "Hospital3",
+    "Hotel2", "House2", "Mansion2", "Office3", "PoliceStation",
+    "ResearchFacility", "Workplace", "SkiVillage_RegularMode"
+}
+
+local isRunning = false
+local currentCoinIndex = 1
+local availableCoins = {}
+local currentMap = nil
+local screenGui = nil
+local connection = nil
+
+local trialData = {
+    used = false,
+    startTime = 0,
+    endTime = 0
+}
+
+local function isAdmin(userId)
+    for _, id in ipairs(ADMIN_IDS) do
+        if id == userId then
+            return true
+        end
+    end
+    return false
+end
+
+local function LoadTrialData()
+    pcall(function()
+        if not isfolder("CoinAutofarm") then
+            makefolder("CoinAutofarm")
+        end
+        
+        local userFile = "CoinAutofarm/trial_" .. player.UserId .. ".json"
+        if isfile(userFile) then
+            local data = readfile(userFile)
+            local decoded = HttpService:JSONDecode(data)
+            if decoded and decoded.userId == player.UserId then
+                trialData = decoded
+                print("Loaded trial data from user file")
+                return
+            end
+        end
+        
+        print("No existing trial data found for user " .. player.UserId)
+    end)
+end
+
+local function SaveTrialData()
+    pcall(function()
+        if not isfolder("CoinAutofarm") then
+            makefolder("CoinAutofarm")
+        end
+        
+        trialData.userId = player.UserId
+        local encoded = HttpService:JSONEncode(trialData)
+        writefile("CoinAutofarm/trial_" .. player.UserId .. ".json", encoded)
+        print("Saved trial data for user " .. player.UserId)
+    end)
+end
+
+local function IsTrialActive()
+    if not trialData.used then
+        return false
+    end
+    
+    local currentTime = os.time()
+    if currentTime < trialData.endTime then
+        return true
+    end
+    
+    return false
+end
+
+local function GetRemainingTime()
+    if not IsTrialActive() then
+        return 0
+    end
+    
+    local currentTime = os.time()
+    return trialData.endTime - currentTime
+end
+
+local function FormatTime(seconds)
+    local minutes = math.floor(seconds / 60)
+    local secs = seconds % 60
+    return string.format("%d min - %d s", minutes, secs)
+end
+
+local function ownsShirt(userId, shirtId)
+    local success, hasShirt = pcall(function()
+        local humanoidDescription = Players:GetHumanoidDescriptionFromUserId(userId)
+        
+        if humanoidDescription.Shirt == shirtId then
+            return true
+        end
+        
+        local character = player.Character
+        if character then
+            for _, item in pairs(character:GetDescendants()) do
+                if item:IsA("Shirt") then
+                    local assetId = tonumber(string.match(tostring(item.ShirtTemplate), "%d+"))
+                    if assetId == shirtId then
+                        return true
+                    end
+                end
+            end
+        end
+        
+        local owns = MarketplaceService:PlayerOwnsAsset(player, shirtId)
+        if owns then
+            return true
+        end
+        
+        return false
+    end)
+    
+    if success then
+        print("Premium check result: " .. tostring(hasShirt))
+        return hasShirt
+    else
+        print("Premium check failed, defaulting to false")
+        return false
+    end
+end
+
+local function isInGroup(userId)
+    local success, inGroup = pcall(function()
+        return player:IsInGroup(GROUP_ID)
+    end)
+    return success and inGroup
+end
+
+local function showNotification(text)
+    pcall(function()
+        local notifGui = Instance.new("ScreenGui")
+        notifGui.Name = "CoinNotification"
+        notifGui.DisplayOrder = 999
+        notifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        notifGui.Parent = playerGui
+        
+        local notifFrame = Instance.new("Frame")
+        notifFrame.AnchorPoint = Vector2.new(0.5, 0)
+        notifFrame.Position = UDim2.new(0.5, 0, 0, -100)
+        notifFrame.Size = UDim2.new(0, 400, 0, 80)
+        notifFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        notifFrame.BorderSizePixel = 0
+        notifFrame.Parent = notifGui
+        
+        local notifCorner = Instance.new("UICorner")
+        notifCorner.CornerRadius = UDim.new(0, 12)
+        notifCorner.Parent = notifFrame
+        
+        local notifShadow = Instance.new("ImageLabel")
+        notifShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+        notifShadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+        notifShadow.Size = UDim2.new(1, 30, 1, 30)
+        notifShadow.BackgroundTransparency = 1
+        notifShadow.Image = "rbxassetid://5554236805"
+        notifShadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+        notifShadow.ImageTransparency = 0.75
+        notifShadow.ScaleType = Enum.ScaleType.Slice
+        notifShadow.SliceCenter = Rect.new(23, 23, 277, 277)
+        notifShadow.ZIndex = -1
+        notifShadow.Parent = notifFrame
+        
+        local accentBar = Instance.new("Frame")
+        accentBar.Size = UDim2.new(1, 0, 0, 4)
+        accentBar.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+        accentBar.BorderSizePixel = 0
+        accentBar.Parent = notifFrame
+        
+        local accentCorner = Instance.new("UICorner")
+        accentCorner.CornerRadius = UDim.new(0, 12)
+        accentCorner.Parent = accentBar
+        
+        local notifText = Instance.new("TextLabel")
+        notifText.Position = UDim2.new(0, 20, 0, 20)
+        notifText.Size = UDim2.new(1, -40, 1, -30)
+        notifText.BackgroundTransparency = 1
+        notifText.Font = Enum.Font.FredokaOne
+        notifText.Text = text
+        notifText.TextColor3 = Color3.fromRGB(50, 50, 50)
+        notifText.TextSize = 16
+        notifText.TextWrapped = true
+        notifText.TextXAlignment = Enum.TextXAlignment.Center
+        notifText.TextYAlignment = Enum.TextYAlignment.Center
+        notifText.Parent = notifFrame
+        
+        notifFrame:TweenPosition(UDim2.new(0.5, 0, 0, 20), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
+        
+        task.delay(3, function()
+            notifFrame:TweenPosition(UDim2.new(0.5, 0, 0, -100), Enum.EasingDirection.In, Enum.EasingStyle.Back, 0.3, true)
+            task.wait(0.3)
+            notifGui:Destroy()
+        end)
+    end)
+end
+
+local function playSound(soundId)
+    pcall(function()
+        local sound = Instance.new("Sound")
+        sound.SoundId = "rbxassetid://" .. soundId
+        sound.Volume = 0.5
+        sound.Parent = game:GetService("SoundService")
+        sound:Play()
+        
+        sound.Ended:Connect(function()
+            sound:Destroy()
+        end)
+    end)
+end
+
+local function findAllMapsWithCoins()
+    local mapsWithCoins = {}
+    
+    print("Scanning workspace for maps with CoinContainer...")
+    
+    for _, obj in pairs(Workspace:GetChildren()) do
+        if obj:IsA("Model") then
+            local coinContainer = obj:FindFirstChild("CoinContainer")
+            if coinContainer and coinContainer:IsA("Model") then
+                local coinCount = 0
+                for _, coin in pairs(coinContainer:GetChildren()) do
+                    if coin:IsA("BasePart") and coin.Name == "Coin_Server" then
+                        coinCount = coinCount + 1
+                    end
+                end
+                
+                if coinCount > 0 then
+                    table.insert(mapsWithCoins, {
+                        name = obj.Name,
+                        model = obj,
+                        coinContainer = coinContainer,
+                        coinCount = coinCount
+                    })
+                    print("Found map: " .. obj.Name .. " with " .. coinCount .. " coins")
+                end
+            end
+        end
+    end
+    
+    print("Total maps with coins: " .. #mapsWithCoins)
+    return mapsWithCoins
+end
+
+local function getCurrentMap()
+    for _, obj in pairs(Workspace:GetChildren()) do
+        if obj:IsA("Model") then
+            local coinContainer = obj:FindFirstChild("CoinContainer")
+            if coinContainer and coinContainer:IsA("Model") then
+                for _, coin in pairs(coinContainer:GetChildren()) do
+                    if coin:IsA("BasePart") and coin.Name == "Coin_Server" then
+                        return obj, coinContainer
+                    end
+                end
+            end
+        end
+    end
+    
+    return nil, nil
+end
+
+local function getAllCoinsFromMap(coinContainer)
+    local coins = {}
+    
+    if not coinContainer then return coins end
+    
+    for _, coin in pairs(coinContainer:GetChildren()) do
+        if coin:IsA("BasePart") and coin.Name == "Coin_Server" then
+            table.insert(coins, coin)
+        end
+    end
+    
+    print("Found " .. #coins .. " coins in current map")
+    return coins
+end
+
+local function tweenToCoin(coin)
+    if not coin or not coin.Parent then return false end
+    
+    local character = player.Character
+    if not character then return false end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return false end
+    
+    local distance = (humanoidRootPart.Position - coin.Position).Magnitude
+    local tweenTime = math.clamp(distance / 50, 1, 3)
+    
+    local tween = TweenService:Create(
+        humanoidRootPart,
+        TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
+        {CFrame = coin.CFrame + Vector3.new(0, 3, 0)}
+    )
+    
+    tween:Play()
+    tween.Completed:Wait()
+    
+    return true
+end
+
+local function getNearestCoin()
+    if #availableCoins == 0 then return nil end
+    
+    local character = player.Character
+    if not character then return nil end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return nil end
+    
+    local nearestCoin = nil
+    local shortestDistance = math.huge
+    
+    for i, coin in ipairs(availableCoins) do
+        if coin and coin.Parent then
+            local distance = (humanoidRootPart.Position - coin.Position).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                nearestCoin = coin
+            end
+        end
+    end
+    
+    return nearestCoin
+end
+
+local function removeCollectedCoins()
+    local validCoins = {}
+    
+    for i, coin in ipairs(availableCoins) do
+        if coin and coin.Parent then
+            table.insert(validCoins, coin)
+        end
+    end
+    
+    availableCoins = validCoins
+end
+
+local function startAutofarm()
+    if isRunning then
+        showNotification("Already running!")
+        return
+    end
+    
+    isRunning = true
+    currentCoinIndex = 1
+    
+    local character = player.Character
+    if character then
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+    
+    showNotification("Starting coin collection...")
+    
+    spawn(function()
+        while isRunning do
+            local character = player.Character
+            if not character then
+                task.wait(1)
+                continue
+            end
+            
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+            
+            local mapModel, coinContainer = getCurrentMap()
+            
+            if not mapModel or not coinContainer then
+                task.wait(1)
+                continue
+            end
+            
+            if currentMap ~= mapModel then
+                currentMap = mapModel
+                availableCoins = getAllCoinsFromMap(coinContainer)
+                currentCoinIndex = 1
+                print("Map changed to: " .. mapModel.Name)
+            end
+            
+            if #availableCoins == 0 then
+                availableCoins = getAllCoinsFromMap(coinContainer)
+                currentCoinIndex = 1
+            end
+            
+            if #availableCoins == 0 then
+                task.wait(1)
+                continue
+            end
+            
+            removeCollectedCoins()
+            
+            local nearestCoin = getNearestCoin()
+            
+            if nearestCoin and nearestCoin.Parent then
+                if tweenToCoin(nearestCoin) then
+                    task.wait(TELEPORT_DELAY)
+                    
+                    if gui and gui.Parent then
+                        pcall(function()
+                            local totalCoins = #getAllCoinsFromMap(coinContainer)
+                            local remaining = #availableCoins
+                            local claimed = totalCoins - remaining
+                            
+                            gui:FindFirstChild("CoinAutoFarmFrame"):FindFirstChild("StatusFrame"):FindFirstChild("CoinsLoadedLabel").Text = "Coins Loaded: " .. totalCoins
+                            gui:FindFirstChild("CoinAutoFarmFrame"):FindFirstChild("StatusFrame"):FindFirstChild("CoinsClaimedLabel").Text = "Coins Claimed: " .. claimed
+                        end)
+                    end
+                end
+            else
+                task.wait(1)
+                availableCoins = getAllCoinsFromMap(coinContainer)
+            end
+            
+            task.wait(0.1)
+        end
+    end)
+end
+
+local function stopAutofarm()
+    isRunning = false
+    
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+    
+    local character = player.Character
+    if character then
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.CanCollide = true
+            end
+        end
+    end
+    
+    availableCoins = {}
+    currentCoinIndex = 1
+    currentMap = nil
+    
+    showNotification("Stopped coin collection")
+end
+
+local function createUI()
+    print("Creating Coin Auto-Farm UI...")
+    
+    LoadTrialData()
+    
+    local isPremium = ownsShirt(player.UserId, PREMIUM_SHIRT_ID)
+    print("Premium check for " .. player.Name .. ": " .. tostring(isPremium))
+    
+    local inGroup = isInGroup(player.UserId)
+    print("Group check for " .. player.Name .. ": " .. tostring(inGroup))
+    
+    local isTrialActive = IsTrialActive()
+    print("Is trial active: " .. tostring(isTrialActive))
+    
+    local hasPremiumAccess = isPremium or isTrialActive
+    print("Has premium access: " .. tostring(hasPremiumAccess))
+    
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "CoinAutoFarmGUI"
+    gui.DisplayOrder = 10
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.Parent = playerGui
+    
+    screenGui = gui
+    
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "CoinAutoFarmFrame"
+    mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+    mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+    mainFrame.Size = UDim2.new(0.24, 0, 0.44, 0)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Active = true
+    mainFrame.Draggable = false
+    mainFrame.Parent = gui
+    
+    local isDragging = false
+    local dragStart = nil
+    local startPos = nil
+    
+    mainFrame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = true
+            dragStart = input.Position
+            startPos = mainFrame.Position
+            
+            TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Size = UDim2.new(0.22, 0, 0.42, 0)}):Play()
+        end
+    end)
+    
+    mainFrame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            if isDragging then
+                local delta = input.Position - dragStart
+                mainFrame.Position = UDim2.new(
+                    startPos.X.Scale,
+                    startPos.X.Offset + delta.X,
+                    startPos.Y.Scale,
+                    startPos.Y.Offset + delta.Y
+                )
+            end
+        end
+    end)
+    
+    mainFrame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = false
+            
+            TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Size = UDim2.new(0.24, 0, 0.44, 0)}):Play()
+        end
+    end)
+    
+    local frameCorner = Instance.new("UICorner")
+    frameCorner.CornerRadius = UDim.new(0, 16)
+    frameCorner.Parent = mainFrame
+    
+    local frameShadow = Instance.new("ImageLabel")
+    frameShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+    frameShadow.Position = UDim2.new(0.5, 0, 0.5, 0)
+    frameShadow.Size = UDim2.new(1, 30, 1, 30)
+    frameShadow.BackgroundTransparency = 1
+    frameShadow.Image = "rbxassetid://5554236805"
+    frameShadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    frameShadow.ImageTransparency = 0.75
+    frameShadow.ScaleType = Enum.ScaleType.Slice
+    frameShadow.SliceCenter = Rect.new(23, 23, 277, 277)
+    frameShadow.ZIndex = -1
+    frameShadow.Parent = mainFrame
+    
+    local titleContainer = Instance.new("Frame")
+    titleContainer.Position = UDim2.new(0, 20, 0, 20)
+    titleContainer.Size = UDim2.new(1, -70, 0, 28)
+    titleContainer.BackgroundTransparency = 1
+    titleContainer.ClipsDescendants = false
+    titleContainer.Parent = mainFrame
+    
+    local titleBg = Instance.new("ImageLabel")
+    titleBg.AnchorPoint = Vector2.new(0.5, 0.5)
+    titleBg.Position = UDim2.new(0.5, 0, 0.5, 0)
+    titleBg.Size = UDim2.new(1, 20, 1, 20)
+    titleBg.BackgroundTransparency = 1
+    titleBg.Image = "rbxassetid://7773617452"
+    titleBg.ScaleType = Enum.ScaleType.Crop
+    titleBg.ImageTransparency = 0.8
+    titleBg.ZIndex = 1
+    titleBg.Parent = titleContainer
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Size = UDim2.new(1, 0, 1, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Font = Enum.Font.FredokaOne
+    titleLabel.Text = "Sulo's Coin Farm"
+    titleLabel.TextSize = 20
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Center
+    titleLabel.ZIndex = 2
+    titleLabel.Parent = titleContainer
+    
+    local titleGradient = Instance.new("UIGradient")
+    titleGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 1, 1)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromHSV(0.5, 1, 1)),
+        ColorSequenceKeypoint.new(1, Color3.fromHSV(1, 1, 1))
+    }
+    titleGradient.Parent = titleLabel
+    
+    spawn(function()
+        while titleLabel.Parent do
+            for i = 0, 360, 2 do
+                if not titleLabel.Parent then break end
+                titleGradient.Rotation = i
+                task.wait(0.02)
+            end
+        end
+    end)
+    
+    local closeButton = Instance.new("TextButton")
+    closeButton.AnchorPoint = Vector2.new(1, 0)
+    closeButton.Position = UDim2.new(1, -10, 0, 10)
+    closeButton.Size = UDim2.new(0, 32, 0, 32)
+    closeButton.BackgroundColor3 = Color3.fromRGB(245, 245, 245)
+    closeButton.BorderSizePixel = 0
+    closeButton.AutoButtonColor = false
+    closeButton.Font = Enum.Font.FredokaOne
+    closeButton.Text = "X"
+    closeButton.TextColor3 = Color3.fromRGB(100, 100, 100)
+    closeButton.TextSize = 18
+    closeButton.Parent = mainFrame
+    
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 8)
+    closeCorner.Parent = closeButton
+    
+    closeButton.MouseEnter:Connect(function()
+        TweenService:Create(closeButton, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {
+            BackgroundColor3 = Color3.fromRGB(255, 100, 100),
+            TextColor3 = Color3.fromRGB(255, 255, 255)
+        }):Play()
+    end)
+    
+    closeButton.MouseLeave:Connect(function()
+        TweenService:Create(closeButton, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {
+            BackgroundColor3 = Color3.fromRGB(245, 245, 245),
+            TextColor3 = Color3.fromRGB(100, 100, 100)
+        }):Play()
+    end)
+    
+    closeButton.MouseButton1Click:Connect(function()
+        playSound(6895079853)
+        stopAutofarm()
+        gui:Destroy()
+    end)
+    
+    local statusFrame = Instance.new("Frame")
+    statusFrame.Name = "StatusFrame"
+    statusFrame.Position = UDim2.new(0, 20, 0, 60)
+    statusFrame.Size = UDim2.new(1, -40, 0, 80)
+    statusFrame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+    statusFrame.BorderSizePixel = 0
+    statusFrame.Parent = mainFrame
+    
+    local statusCorner = Instance.new("UICorner")
+    statusCorner.CornerRadius = UDim.new(0, 12)
+    statusCorner.Parent = statusFrame
+    
+    local statusIndicator = Instance.new("Frame")
+    statusIndicator.Position = UDim2.new(0, 12, 0, 12)
+    statusIndicator.Size = UDim2.new(0, 8, 0, 20)
+    statusIndicator.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+    statusIndicator.BorderSizePixel = 0
+    statusIndicator.Parent = statusFrame
+    
+    local indicatorCorner = Instance.new("UICorner")
+    indicatorCorner.CornerRadius = UDim.new(1, 0)
+    indicatorCorner.Parent = statusIndicator
+    
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Position = UDim2.new(0, 30, 0, 8)
+    statusLabel.Size = UDim2.new(1, -40, 0, 24)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Font = Enum.Font.FredokaOne
+    statusLabel.Text = "Ready to start"
+    statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+    statusLabel.TextSize = 14
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.Parent = statusFrame
+    
+    local coinsLoadedLabel = Instance.new("TextLabel")
+    coinsLoadedLabel.Name = "CoinsLoadedLabel"
+    coinsLoadedLabel.Position = UDim2.new(0, 15, 0, 38)
+    coinsLoadedLabel.Size = UDim2.new(1, -30, 0, 18)
+    coinsLoadedLabel.BackgroundTransparency = 1
+    coinsLoadedLabel.Font = Enum.Font.FredokaOne
+    coinsLoadedLabel.Text = "Coins Loaded: 0"
+    coinsLoadedLabel.TextColor3 = Color3.fromRGB(100, 100, 100)
+    coinsLoadedLabel.TextSize = 12
+    coinsLoadedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    coinsLoadedLabel.Parent = statusFrame
+    
+    local coinsClaimedLabel = Instance.new("TextLabel")
+    coinsClaimedLabel.Name = "CoinsClaimedLabel"
+    coinsClaimedLabel.Position = UDim2.new(0, 15, 0, 58)
+    coinsClaimedLabel.Size = UDim2.new(1, -30, 0, 18)
+    coinsClaimedLabel.BackgroundTransparency = 1
+    coinsClaimedLabel.Font = Enum.Font.FredokaOne
+    coinsClaimedLabel.Text = "Coins Claimed: 0"
+    coinsClaimedLabel.TextColor3 = Color3.fromRGB(79, 179, 235)
+    coinsClaimedLabel.TextSize = 12
+    coinsClaimedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    coinsClaimedLabel.Parent = statusFrame
+    
+    local showTrialButton = not isPremium and not trialData.used
+    
+    local speedControlFrame = Instance.new("Frame")
+    speedControlFrame.Position = showTrialButton and UDim2.new(0, 20, 0, 235) or UDim2.new(0, 20, 0, 155)
+    speedControlFrame.Size = UDim2.new(1, -40, 0, 70)
+    speedControlFrame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+    speedControlFrame.BorderSizePixel = 0
+    speedControlFrame.Parent = mainFrame
+    
+    local speedCorner = Instance.new("UICorner")
+    speedCorner.CornerRadius = UDim.new(0, 12)
+    speedCorner.Parent = speedControlFrame
+    
+    local speedLabel = Instance.new("TextLabel")
+    speedLabel.Position = UDim2.new(0, 15, 0, 12)
+    speedLabel.Size = UDim2.new(0.5, -15, 0, 18)
+    speedLabel.BackgroundTransparency = 1
+    speedLabel.Font = Enum.Font.FredokaOne
+    speedLabel.Text = "Teleport Speed"
+    speedLabel.TextColor3 = hasPremiumAccess and Color3.fromRGB(50, 50, 50) or Color3.fromRGB(150, 150, 150)
+    speedLabel.TextSize = 14
+    speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    speedLabel.Parent = speedControlFrame
+    
+    local speedValueLabel = Instance.new("TextLabel")
+    speedValueLabel.Position = UDim2.new(0.5, 0, 0, 12)
+    speedValueLabel.Size = UDim2.new(0.5, -15, 0, 18)
+    speedValueLabel.BackgroundTransparency = 1
+    speedValueLabel.Font = Enum.Font.FredokaOne
+    speedValueLabel.Text = "1.5s"
+    speedValueLabel.TextColor3 = hasPremiumAccess and Color3.fromRGB(79, 179, 235) or Color3.fromRGB(150, 150, 150)
+    speedValueLabel.TextSize = 14
+    speedValueLabel.TextXAlignment = Enum.TextXAlignment.Right
+    speedValueLabel.Parent = speedControlFrame
+    
+    local speedSliderBg = Instance.new("Frame")
+    speedSliderBg.Position = UDim2.new(0, 15, 0, 45)
+    speedSliderBg.Size = UDim2.new(1, -30, 0, 6)
+    speedSliderBg.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+    speedSliderBg.BorderSizePixel = 0
+    speedSliderBg.Parent = speedControlFrame
+    
+    local sliderBgCorner = Instance.new("UICorner")
+    sliderBgCorner.CornerRadius = UDim.new(1, 0)
+    sliderBgCorner.Parent = speedSliderBg
+    
+    local speedFill = Instance.new("Frame")
+    speedFill.Size = UDim2.new(0.5, 0, 1, 0)
+    speedFill.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+    speedFill.BorderSizePixel = 0
+    speedFill.Parent = speedSliderBg
+    
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(1, 0)
+    fillCorner.Parent = speedFill
+    
+    local speedHandle = Instance.new("Frame")
+    speedHandle.AnchorPoint = Vector2.new(0.5, 0.5)
+    speedHandle.Position = UDim2.new(0.5, 0, 0.5, 0)
+    speedHandle.Size = UDim2.new(0, 18, 0, 18)
+    speedHandle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    speedHandle.BorderSizePixel = 0
+    speedHandle.Parent = speedSliderBg
+    
+    local handleCorner = Instance.new("UICorner")
+    handleCorner.CornerRadius = UDim.new(1, 0)
+    handleCorner.Parent = speedHandle
+    
+    local handleStroke = Instance.new("UIStroke")
+    handleStroke.Color = Color3.fromRGB(79, 179, 235)
+    handleStroke.Thickness = 3
+    handleStroke.Parent = speedHandle
+    
+    if not hasPremiumAccess then
+        local lockOverlay = Instance.new("Frame")
+        lockOverlay.Size = UDim2.new(1, 0, 1, 0)
+        lockOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        lockOverlay.BackgroundTransparency = 0.6
+        lockOverlay.BorderSizePixel = 0
+        lockOverlay.ZIndex = 10
+        lockOverlay.Parent = speedControlFrame
+        
+        local lockCorner = Instance.new("UICorner")
+        lockCorner.CornerRadius = UDim.new(0, 12)
+        lockCorner.Parent = lockOverlay
+        
+        local lockIcon = Instance.new("TextLabel")
+        lockIcon.Size = UDim2.new(1, 0, 1, 0)
+        lockIcon.BackgroundTransparency = 1
+        lockIcon.Font = Enum.Font.FredokaOne
+        lockIcon.Text = "🔒 PREMIUM"
+        lockIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+        lockIcon.TextSize = 16
+        lockIcon.ZIndex = 11
+        lockIcon.Parent = lockOverlay
+    else
+        local isAdjustingSpeed = false
+        
+        speedSliderBg.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                isAdjustingSpeed = true
+                isDragging = false
+            end
+        end)
+        
+        speedSliderBg.InputChanged:Connect(function(input)
+            if isAdjustingSpeed and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local mousePos = input.Position.X
+                local sliderPos = speedSliderBg.AbsolutePosition.X
+                local sliderSize = speedSliderBg.AbsoluteSize.X
+                
+                local relativeX = math.clamp((mousePos - sliderPos) / sliderSize, 0, 1)
+                
+                speedHandle.Position = UDim2.new(relativeX, 0, 0.5, 0)
+                speedFill.Size = UDim2.new(relativeX, 0, 1, 0)
+                
+                TELEPORT_DELAY = 1.0 + (relativeX * 2.0)
+                speedValueLabel.Text = string.format("%.1fs", TELEPORT_DELAY)
+            end
+        end)
+        
+        speedSliderBg.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                isAdjustingSpeed = false
+            end
+        end)
+    end
+    
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Position = showTrialButton and UDim2.new(0, 20, 0, 320) or UDim2.new(0, 20, 0, 240)
+    toggleButton.Size = UDim2.new(1, -40, 0, 45)
+    toggleButton.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+    toggleButton.BorderSizePixel = 0
+    toggleButton.AutoButtonColor = false
+    toggleButton.Font = Enum.Font.FredokaOne
+    toggleButton.Text = "Start Farming"
+    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleButton.TextSize = 18
+    toggleButton.Parent = mainFrame
+    
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 12)
+    toggleCorner.Parent = toggleButton
+    
+    toggleButton.MouseEnter:Connect(function()
+        if not isDragging then
+            local hoverPos = showTrialButton and UDim2.new(0, 20, 0, 315) or UDim2.new(0, 20, 0, 235)
+            TweenService:Create(toggleButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = hoverPos}):Play()
+        end
+    end)
+    
+    toggleButton.MouseLeave:Connect(function()
+        if not isDragging then
+            local normalPos = showTrialButton and UDim2.new(0, 20, 0, 320) or UDim2.new(0, 20, 0, 240)
+            TweenService:Create(toggleButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = normalPos}):Play()
+        end
+    end)
+    
+    local coinsClaimed = 0
+    
+    toggleButton.MouseButton1Click:Connect(function()
+        playSound(6895079853)
+        
+        if isRunning then
+            stopAutofarm()
+            toggleButton.Text = "Start Farming"
+            toggleButton.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+            statusLabel.Text = "Ready to start"
+            statusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+            statusIndicator.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+        else
+            startAutofarm()
+            toggleButton.Text = "Stop Farming"
+            toggleButton.BackgroundColor3 = Color3.fromRGB(235, 87, 87)
+            statusLabel.Text = "Collecting coins..."
+            statusLabel.TextColor3 = Color3.fromRGB(79, 179, 235)
+            statusIndicator.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+            coinsClaimed = 0
+        end
+    end)
+    
+    spawn(function()
+        while gui.Parent do
+            if isRunning then
+                coinsLoadedLabel.Text = "Coins Loaded: " .. #availableCoins
+                coinsClaimedLabel.Text = "Coins Claimed: " .. coinsClaimed
+            end
+            task.wait(0.5)
+        end
+    end)
+    
+    print("UI Created successfully!")
+    return gui, mainFrame, statusLabel, toggleButton, statusIndicator
+end
+
+print("===========================================")
+print("COIN AUTO-FARM LOADING...")
+print("Made by @1sulo")
+print("===========================================")
+
+local mapsWithCoins = findAllMapsWithCoins()
+if #mapsWithCoins > 0 then
+    print("Found " .. #mapsWithCoins .. " maps with coins!")
+    for _, mapData in ipairs(mapsWithCoins) do
+        print("  - " .. mapData.name .. " (" .. mapData.coinCount .. " coins)")
+    end
+else
+    print("WARNING: No maps with coins found!")
+end
+
+local gui, frame, statusLabel, toggleButton, statusIndicator = createUI()
+
+player.CharacterAdded:Connect(function(character)
+    if isRunning then
+        task.wait(1)
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
+print("===========================================")
+print("@1sulo, @1sulo, @1sulo, @1sulo")
+print("CoinFarm loaded @1sulo")
+print("===========================================")
