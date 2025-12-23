@@ -15,7 +15,8 @@ local GROUP_ID = 10612101
 local PREMIUM_SHIRT_ID = 132268448125497
 local FREE_TRIAL_DURATION = 3600
 local ADMIN_IDS = {1930407347, 4676137232}
-local TELEPORT_DELAY = 1.5 -- Delay between each coin teleport (default for non-premium)
+local TELEPORT_DELAY = 1.5
+local FARM_ANIMATION_ID = 80007036319743
 
 local KNOWN_MAPS = {
     "Workshop", "Log Cabin", "TrainStation", "IceCastle", "Ski Lodge",
@@ -30,6 +31,9 @@ local availableCoins = {}
 local currentMap = nil
 local screenGui = nil
 local connection = nil
+local farmAnimation = nil
+local farmAnimationTrack = nil
+local bodiesConnection = nil
 
 local trialData = {
     used = false,
@@ -297,6 +301,71 @@ local function getAllCoinsFromMap(coinContainer)
     return coins
 end
 
+-- NEW: Function to disable collision on all character parts
+local function disableCharacterCollision(character)
+    if not character then return end
+    
+    for _, part in pairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+        end
+    end
+end
+
+-- NEW: Function to play the farm animation
+local function playFarmAnimation(character)
+    if not character then return end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    
+    pcall(function()
+        if farmAnimationTrack then
+            farmAnimationTrack:Stop()
+            farmAnimationTrack:Destroy()
+        end
+        
+        if not farmAnimation then
+            farmAnimation = Instance.new("Animation")
+            farmAnimation.AnimationId = "rbxassetid://" .. FARM_ANIMATION_ID
+        end
+        
+        farmAnimationTrack = humanoid:LoadAnimation(farmAnimation)
+        farmAnimationTrack.Looped = true
+        farmAnimationTrack.Priority = Enum.AnimationPriority.Action
+        farmAnimationTrack:Play()
+        
+        print("Farm animation playing")
+    end)
+end
+
+-- NEW: Function to stop the farm animation
+local function stopFarmAnimation()
+    pcall(function()
+        if farmAnimationTrack then
+            farmAnimationTrack:Stop()
+            farmAnimationTrack:Destroy()
+            farmAnimationTrack = nil
+        end
+        print("Farm animation stopped")
+    end)
+end
+
+-- NEW: Teleport to safe position when no coins
+local function teleportToSafePosition()
+    local character = player.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+    
+    local safePosition = Vector3.new(-5038, 287, 84)
+    humanoidRootPart.CFrame = CFrame.new(safePosition)
+    
+    print("No coins detected - teleported to safe position")
+end
+
+-- IMPROVED: Tween to coin without rotation change
 local function tweenToCoin(coin)
     if not coin or not coin.Parent then return false end
     
@@ -306,13 +375,20 @@ local function tweenToCoin(coin)
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return false end
     
-    local distance = (humanoidRootPart.Position - coin.Position).Magnitude
-    local tweenTime = math.clamp(distance / 50, 1, 3)
+    -- Calculate distance and tween time
+    local currentPos = humanoidRootPart.Position
+    local targetPos = coin.Position
+    local distance = (currentPos - targetPos).Magnitude
+    local tweenTime = math.clamp(distance / 40, 0.5, 3)
     
+    -- Move to coin position without changing orientation
+    local targetCFrame = CFrame.new(targetPos.X, targetPos.Y, targetPos.Z)
+    
+    -- Create and play tween
     local tween = TweenService:Create(
         humanoidRootPart,
         TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
-        {CFrame = coin.CFrame + Vector3.new(0, 3, 0)}
+        {CFrame = targetCFrame}
     )
     
     tween:Play()
@@ -369,12 +445,64 @@ local function startAutofarm()
     
     local character = player.Character
     if character then
-        for _, part in pairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
+        -- Disable collision on all parts
+        disableCharacterCollision(character)
+        
+        -- Play farm animation
+        playFarmAnimation(character)
+        
+        -- Set humanoid to physics state
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        end
+        
+        -- Add anti-gravity to prevent falling
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local bodyVelocity = Instance.new("BodyVelocity")
+            bodyVelocity.Name = "AntiGravity"
+            bodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
+            bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+            bodyVelocity.Parent = hrp
         end
     end
+    
+    -- Simple Heartbeat - maintain rotation and anti-gravity
+    bodiesConnection = RunService.Heartbeat:Connect(function()
+        local char = player.Character
+        if char and isRunning then
+            disableCharacterCollision(char)
+            
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            
+            if hrp then
+                -- Keep humanoid in physics state
+                if humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Physics then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+                end
+                
+                -- Constantly rotate character on Y-axis (spinning) to trigger coin collection
+                local currentTime = tick()
+                local rotationSpeed = 5 -- Rotation speed
+                local rotationAngle = (currentTime * rotationSpeed) % 360
+                
+                local pos = hrp.Position
+                hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, math.rad(rotationAngle), 0)
+                
+                -- Ensure anti-gravity exists
+                local antiGravity = hrp:FindFirstChild("AntiGravity")
+                if not antiGravity then
+                    antiGravity = Instance.new("BodyVelocity")
+                    antiGravity.Name = "AntiGravity"
+                    antiGravity.MaxForce = Vector3.new(0, math.huge, 0)
+                    antiGravity.Velocity = Vector3.new(0, 0, 0)
+                    antiGravity.Parent = hrp
+                end
+            end
+        end
+    end)
     
     showNotification("Starting coin collection...")
     
@@ -386,16 +514,12 @@ local function startAutofarm()
                 continue
             end
             
-            for _, part in pairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
-            end
-            
             local mapModel, coinContainer = getCurrentMap()
             
             if not mapModel or not coinContainer then
-                task.wait(1)
+                -- No map detected, go to safe position
+                teleportToSafePosition()
+                task.wait(2)
                 continue
             end
             
@@ -412,17 +536,45 @@ local function startAutofarm()
             end
             
             if #availableCoins == 0 then
-                task.wait(1)
+                -- No coins available, teleport to safe position
+                teleportToSafePosition()
+                task.wait(2)
                 continue
             end
             
             removeCollectedCoins()
             
+            -- Always go to nearest coin
             local nearestCoin = getNearestCoin()
             
             if nearestCoin and nearestCoin.Parent then
                 if tweenToCoin(nearestCoin) then
-                    task.wait(TELEPORT_DELAY)
+                    -- Move around the coin in a small circle to ensure collection
+                    local character = player.Character
+                    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+                    
+                    if hrp and nearestCoin and nearestCoin.Parent then
+                        local coinPos = nearestCoin.Position
+                        local startTime = tick()
+                        local circleDuration = 0.5 -- Half second to circle around coin
+                        
+                        -- Make small circular movements around the coin
+                        while tick() - startTime < circleDuration and nearestCoin.Parent do
+                            local progress = (tick() - startTime) / circleDuration
+                            local angle = progress * math.pi * 2 -- Full circle
+                            local radius = 3 -- Small radius around coin
+                            
+                            local offsetX = math.cos(angle) * radius
+                            local offsetZ = math.sin(angle) * radius
+                            
+                            hrp.CFrame = CFrame.new(coinPos.X + offsetX, coinPos.Y, coinPos.Z + offsetZ) * CFrame.Angles(0, math.rad(progress * 360), 0)
+                            
+                            task.wait()
+                        end
+                    end
+                    
+                    -- Stay at coin position for remaining delay time
+                    task.wait(math.max(0, TELEPORT_DELAY - 0.5))
                     
                     if gui and gui.Parent then
                         pcall(function()
@@ -436,17 +588,28 @@ local function startAutofarm()
                     end
                 end
             else
+                -- No valid coin, go to safe position
+                teleportToSafePosition()
                 task.wait(1)
                 availableCoins = getAllCoinsFromMap(coinContainer)
             end
             
-            task.wait(0.1)
+            task.wait(0.3)
         end
     end)
 end
 
 local function stopAutofarm()
     isRunning = false
+    
+    -- Stop animation
+    stopFarmAnimation()
+    
+    -- Disconnect bodies connection
+    if bodiesConnection then
+        bodiesConnection:Disconnect()
+        bodiesConnection = nil
+    end
     
     if connection then
         connection:Disconnect()
@@ -455,10 +618,29 @@ local function stopAutofarm()
     
     local character = player.Character
     if character then
+        -- Re-enable collision
         for _, part in pairs(character:GetDescendants()) do
             if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
                 part.CanCollide = true
             end
+        end
+        
+        -- Reset rotation to normal
+        local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+        if humanoidRootPart then
+            humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position)
+            
+            -- Remove anti-gravity
+            local antiGravity = humanoidRootPart:FindFirstChild("AntiGravity")
+            if antiGravity then
+                antiGravity:Destroy()
+            end
+        end
+        
+        -- Reset humanoid state
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
         end
     end
     
@@ -546,14 +728,15 @@ local function createUI()
     frameCorner.CornerRadius = UDim.new(0, 16)
     frameCorner.Parent = mainFrame
     
+    -- NEW: Improved shadow effect
     local frameShadow = Instance.new("ImageLabel")
     frameShadow.AnchorPoint = Vector2.new(0.5, 0.5)
-    frameShadow.Position = UDim2.new(0.5, 0, 0.5, 0)
-    frameShadow.Size = UDim2.new(1, 30, 1, 30)
+    frameShadow.Position = UDim2.new(0.5, 0, 0.5, 3)
+    frameShadow.Size = UDim2.new(1, 40, 1, 40)
     frameShadow.BackgroundTransparency = 1
     frameShadow.Image = "rbxassetid://5554236805"
     frameShadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
-    frameShadow.ImageTransparency = 0.75
+    frameShadow.ImageTransparency = 0.6
     frameShadow.ScaleType = Enum.ScaleType.Slice
     frameShadow.SliceCenter = Rect.new(23, 23, 277, 277)
     frameShadow.ZIndex = -1
@@ -566,14 +749,17 @@ local function createUI()
     titleContainer.ClipsDescendants = false
     titleContainer.Parent = mainFrame
     
+    -- NEW: Enhanced title background with glow effect
     local titleBg = Instance.new("ImageLabel")
     titleBg.AnchorPoint = Vector2.new(0.5, 0.5)
     titleBg.Position = UDim2.new(0.5, 0, 0.5, 0)
-    titleBg.Size = UDim2.new(1, 20, 1, 20)
+    titleBg.Size = UDim2.new(1, 30, 1, 30)
     titleBg.BackgroundTransparency = 1
-    titleBg.Image = "rbxassetid://7773617452"
-    titleBg.ScaleType = Enum.ScaleType.Crop
-    titleBg.ImageTransparency = 0.8
+    titleBg.Image = "rbxassetid://5554236805"
+    titleBg.ScaleType = Enum.ScaleType.Slice
+    titleBg.SliceCenter = Rect.new(23, 23, 277, 277)
+    titleBg.ImageColor3 = Color3.fromRGB(79, 179, 235)
+    titleBg.ImageTransparency = 0.85
     titleBg.ZIndex = 1
     titleBg.Parent = titleContainer
     
@@ -587,6 +773,20 @@ local function createUI()
     titleLabel.TextXAlignment = Enum.TextXAlignment.Center
     titleLabel.ZIndex = 2
     titleLabel.Parent = titleContainer
+    
+    -- NEW: Enhanced text shadow effect
+    local titleShadow = Instance.new("TextLabel")
+    titleShadow.Size = UDim2.new(1, 0, 1, 0)
+    titleShadow.Position = UDim2.new(0, 2, 0, 2)
+    titleShadow.BackgroundTransparency = 1
+    titleShadow.Font = Enum.Font.FredokaOne
+    titleShadow.Text = "Sulo's Coin Farm"
+    titleShadow.TextSize = 20
+    titleShadow.TextColor3 = Color3.fromRGB(0, 0, 0)
+    titleShadow.TextTransparency = 0.7
+    titleShadow.TextXAlignment = Enum.TextXAlignment.Center
+    titleShadow.ZIndex = 1
+    titleShadow.Parent = titleContainer
     
     local titleGradient = Instance.new("UIGradient")
     titleGradient.Color = ColorSequence.new{
@@ -916,15 +1116,29 @@ local gui, frame, statusLabel, toggleButton, statusIndicator = createUI()
 player.CharacterAdded:Connect(function(character)
     if isRunning then
         task.wait(1)
-        for _, part in pairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
+        
+        -- Reapply settings on respawn
+        disableCharacterCollision(character)
+        playFarmAnimation(character)
+        
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        end
+        
+        -- Add anti-gravity
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local bodyVelocity = Instance.new("BodyVelocity")
+            bodyVelocity.Name = "AntiGravity"
+            bodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
+            bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+            bodyVelocity.Parent = hrp
         end
     end
 end)
 
 print("===========================================")
-print("@1sulo, @1sulo, @1sulo, @1sulo")
-print("CoinFarm loaded @1sulo")
+print("COIN AUTO-FARM READY!")
+print("Click 'Start Farming' to begin")
 print("===========================================")
