@@ -34,6 +34,8 @@ local connection = nil
 local farmAnimation = nil
 local farmAnimationTrack = nil
 local bodiesConnection = nil
+local coinRefreshConnection = nil
+local isTweening = false
 
 local trialData = {
     used = false,
@@ -351,6 +353,35 @@ local function stopFarmAnimation()
     end)
 end
 
+-- NEW: Check if any coin bag is full
+local function isCoinBagFull()
+    pcall(function()
+        local mainGui = playerGui:FindFirstChild("MainGUI")
+        if not mainGui then return false end
+        
+        local gameFrame = mainGui:FindFirstChild("Game")
+        if not gameFrame then return false end
+        
+        local coinBagsFrame = gameFrame:FindFirstChild("CoinBags")
+        if not coinBagsFrame then return false end
+        
+        local bagTypes = {"BeachBall", "Candy", "Egg", "SnowToken"}
+        
+        for _, bagName in ipairs(bagTypes) do
+            local bagFrame = coinBagsFrame:FindFirstChild(bagName)
+            if bagFrame then
+                local fullLabel = bagFrame:FindFirstChild("Full")
+                if fullLabel and fullLabel:IsA("TextLabel") and fullLabel.Visible then
+                    print("Coin bag " .. bagName .. " is full!")
+                    return true
+                end
+            end
+        end
+    end)
+    
+    return false
+end
+
 -- NEW: Teleport to safe position when no coins
 local function teleportToSafePosition()
     local character = player.Character
@@ -365,7 +396,7 @@ local function teleportToSafePosition()
     print("No coins detected - teleported to safe position")
 end
 
--- IMPROVED: Tween to coin without rotation change
+-- IMPROVED: Tween to coin at its actual position
 local function tweenToCoin(coin)
     if not coin or not coin.Parent then return false end
     
@@ -375,13 +406,15 @@ local function tweenToCoin(coin)
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return false end
     
+    isTweening = true
+    
     -- Calculate distance and tween time
     local currentPos = humanoidRootPart.Position
     local targetPos = coin.Position
     local distance = (currentPos - targetPos).Magnitude
     local tweenTime = math.clamp(distance / 40, 0.5, 3)
     
-    -- Move to coin position without changing orientation
+    -- Go to the coin's actual position (including Y)
     local targetCFrame = CFrame.new(targetPos.X, targetPos.Y, targetPos.Z)
     
     -- Create and play tween
@@ -393,6 +426,8 @@ local function tweenToCoin(coin)
     
     tween:Play()
     tween.Completed:Wait()
+    
+    isTweening = false
     
     return true
 end
@@ -468,7 +503,7 @@ local function startAutofarm()
         end
     end
     
-    -- Simple Heartbeat - maintain rotation and anti-gravity
+    -- Simple Heartbeat - maintain rotation, anti-gravity, and prevent random floating
     bodiesConnection = RunService.Heartbeat:Connect(function()
         local char = player.Character
         if char and isRunning then
@@ -481,6 +516,12 @@ local function startAutofarm()
                 -- Keep humanoid in physics state
                 if humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Physics then
                     humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+                end
+                
+                -- Only lock position when NOT tweening to prevent random floating
+                if not isTweening then
+                    local currentPos = hrp.Position
+                    hrp.Position = currentPos -- Lock in place
                 end
                 
                 -- Constantly rotate character on Y-axis (spinning) to trigger coin collection
@@ -500,6 +541,37 @@ local function startAutofarm()
                     antiGravity.Velocity = Vector3.new(0, 0, 0)
                     antiGravity.Parent = hrp
                 end
+            end
+        end
+    end)
+    
+    -- NEW: Auto-refresh coins every 5 seconds
+    coinRefreshConnection = RunService.Heartbeat:Connect(function()
+        if isRunning then
+            task.spawn(function()
+                while isRunning do
+                    task.wait(5)
+                    
+                    -- Check if coin bag is full
+                    if isCoinBagFull() then
+                        print("Coin bag full - teleporting to safe position")
+                        teleportToSafePosition()
+                        task.wait(2)
+                        continue
+                    end
+                    
+                    local mapModel, coinContainer = getCurrentMap()
+                    if mapModel and coinContainer then
+                        availableCoins = getAllCoinsFromMap(coinContainer)
+                        print("Auto-refreshed coins: " .. #availableCoins .. " coins found")
+                    end
+                end
+            end)
+            
+            -- Disconnect after starting the loop
+            if coinRefreshConnection then
+                coinRefreshConnection:Disconnect()
+                coinRefreshConnection = nil
             end
         end
     end)
@@ -548,43 +620,55 @@ local function startAutofarm()
             local nearestCoin = getNearestCoin()
             
             if nearestCoin and nearestCoin.Parent then
-                if tweenToCoin(nearestCoin) then
-                    -- Move around the coin in a small circle to ensure collection
-                    local character = player.Character
-                    local hrp = character and character:FindFirstChild("HumanoidRootPart")
-                    
-                    if hrp and nearestCoin and nearestCoin.Parent then
-                        local coinPos = nearestCoin.Position
-                        local startTime = tick()
-                        local circleDuration = 0.5 -- Half second to circle around coin
+                -- Check if coin bag is full before collecting
+                if isCoinBagFull() then
+                    print("Coin bag full - going to safe position")
+                    teleportToSafePosition()
+                    task.wait(2)
+                else
+                    if tweenToCoin(nearestCoin) then
+                        -- Move around the coin in a small circle to ensure collection
+                        local character = player.Character
+                        local hrp = character and character:FindFirstChild("HumanoidRootPart")
                         
-                        -- Make small circular movements around the coin
-                        while tick() - startTime < circleDuration and nearestCoin.Parent do
-                            local progress = (tick() - startTime) / circleDuration
-                            local angle = progress * math.pi * 2 -- Full circle
-                            local radius = 3 -- Small radius around coin
+                        if hrp and nearestCoin and nearestCoin.Parent then
+                            local coinPos = nearestCoin.Position
+                            local startTime = tick()
+                            local circleDuration = 0.5 -- Half second to circle around coin
                             
-                            local offsetX = math.cos(angle) * radius
-                            local offsetZ = math.sin(angle) * radius
+                            isTweening = true
                             
-                            hrp.CFrame = CFrame.new(coinPos.X + offsetX, coinPos.Y, coinPos.Z + offsetZ) * CFrame.Angles(0, math.rad(progress * 360), 0)
+                            -- Make small circular movements around the coin
+                            while tick() - startTime < circleDuration and nearestCoin.Parent do
+                                local progress = (tick() - startTime) / circleDuration
+                                local angle = progress * math.pi * 2 -- Full circle
+                                local radius = 3 -- Small radius around coin
+                                
+                                local offsetX = math.cos(angle) * radius
+                                local offsetZ = math.sin(angle) * radius
+                                
+                                -- Use coin's actual Y position
+                                hrp.CFrame = CFrame.new(coinPos.X + offsetX, coinPos.Y, coinPos.Z + offsetZ) * CFrame.Angles(0, math.rad(progress * 360), 0)
+                                
+                                task.wait()
+                            end
                             
-                            task.wait()
+                            isTweening = false
                         end
-                    end
-                    
-                    -- Stay at coin position for remaining delay time
-                    task.wait(math.max(0, TELEPORT_DELAY - 0.5))
-                    
-                    if gui and gui.Parent then
-                        pcall(function()
-                            local totalCoins = #getAllCoinsFromMap(coinContainer)
-                            local remaining = #availableCoins
-                            local claimed = totalCoins - remaining
-                            
-                            gui:FindFirstChild("CoinAutoFarmFrame"):FindFirstChild("StatusFrame"):FindFirstChild("CoinsLoadedLabel").Text = "Coins Loaded: " .. totalCoins
-                            gui:FindFirstChild("CoinAutoFarmFrame"):FindFirstChild("StatusFrame"):FindFirstChild("CoinsClaimedLabel").Text = "Coins Claimed: " .. claimed
-                        end)
+                        
+                        -- Stay at coin position for remaining delay time
+                        task.wait(math.max(0, TELEPORT_DELAY - 0.5))
+                        
+                        if gui and gui.Parent then
+                            pcall(function()
+                                local totalCoins = #getAllCoinsFromMap(coinContainer)
+                                local remaining = #availableCoins
+                                local claimed = totalCoins - remaining
+                                
+                                gui:FindFirstChild("CoinAutoFarmFrame"):FindFirstChild("StatusFrame"):FindFirstChild("CoinsLoadedLabel").Text = "Coins Loaded: " .. totalCoins
+                                gui:FindFirstChild("CoinAutoFarmFrame"):FindFirstChild("StatusFrame"):FindFirstChild("CoinsClaimedLabel").Text = "Coins Claimed: " .. claimed
+                            end)
+                        end
                     end
                 end
             else
@@ -601,6 +685,7 @@ end
 
 local function stopAutofarm()
     isRunning = false
+    isTweening = false
     
     -- Stop animation
     stopFarmAnimation()
@@ -609,6 +694,12 @@ local function stopAutofarm()
     if bodiesConnection then
         bodiesConnection:Disconnect()
         bodiesConnection = nil
+    end
+    
+    -- Disconnect coin refresh connection
+    if coinRefreshConnection then
+        coinRefreshConnection:Disconnect()
+        coinRefreshConnection = nil
     end
     
     if connection then
@@ -1139,6 +1230,6 @@ player.CharacterAdded:Connect(function(character)
 end)
 
 print("===========================================")
-print("COIN AUTO-FARM READY!")
-print("Click 'Start Farming' to begin")
+print("Loaded")
+print("v2")
 print("===========================================")
