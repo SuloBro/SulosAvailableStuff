@@ -17,13 +17,7 @@ local FREE_TRIAL_DURATION = 3600
 local ADMIN_IDS = {1930407347, 4676137232}
 local TELEPORT_DELAY = 1.5
 local FARM_ANIMATION_ID = 80007036319743
-
-local KNOWN_MAPS = {
-    "Workshop", "Log Cabin", "TrainStation", "IceCastle", "Ski Lodge",
-    "XmasItaly", "Ski Village", "Bank2", "BioLab", "Factory", "Hospital3",
-    "Hotel2", "House2", "Mansion2", "Office3", "PoliceStation",
-    "ResearchFacility", "Workplace", "SkiVillage_RegularMode"
-}
+local COIN_REFRESH_RATE = 1
 
 local isRunning = false
 local currentCoinIndex = 1
@@ -34,6 +28,19 @@ local connection = nil
 local farmAnimation = nil
 local farmAnimationTrack = nil
 local bodiesConnection = nil
+local coinRefreshConnection = nil
+local cachedCoinContainer = nil
+local lastRefreshTime = 0
+local totalCoinsCollected = 0
+local lastCoinCount = 0
+local coinGuiPath = nil
+local lastCoinIncreaseTime = 0
+local noIncreaseTimer = 0
+local hasReachedMaxCoins = false
+local savedTotalCoins = 0
+local murdererPlayer = nil
+local sheriffPlayer = nil
+local avoidMurdererEnabled = false
 
 local trialData = {
     used = false,
@@ -110,6 +117,172 @@ local function FormatTime(seconds)
     local minutes = math.floor(seconds / 60)
     local secs = seconds % 60
     return string.format("%d min - %d s", minutes, secs)
+end
+
+local function getCoinGuiPath()
+    if coinGuiPath and coinGuiPath.Parent then
+        return coinGuiPath
+    end
+    
+    local success = pcall(function()
+        local mainGui = playerGui:FindFirstChild("MainGUI")
+        if not mainGui then return end
+        
+        local gameFrame = mainGui:FindFirstChild("Game")
+        if not gameFrame then return end
+        
+        local coinBags = gameFrame:FindFirstChild("CoinBags")
+        if not coinBags then return end
+        
+        local container = coinBags:FindFirstChild("Container")
+        if not container then return end
+        
+        local snowToken = container:FindFirstChild("SnowToken")
+        if not snowToken then return end
+        
+        local currencyFrame = snowToken:FindFirstChild("CurrencyFrame")
+        if not currencyFrame then return end
+        
+        local icon = currencyFrame:FindFirstChild("Icon")
+        if not icon then return end
+        
+        local coinsLabel = icon:FindFirstChild("Coins")
+        if coinsLabel and coinsLabel:IsA("TextLabel") then
+            coinGuiPath = coinsLabel
+        end
+    end)
+    
+    return coinGuiPath
+end
+
+local function getCurrentCoinsFromGui()
+    local coinsLabel = getCoinGuiPath()
+    if not coinsLabel then
+        return 0
+    end
+    
+    local coinText = coinsLabel.Text
+    local coinNumber = tonumber(coinText) or 0
+    
+    return coinNumber
+end
+
+local function updateTotalCoins()
+    local currentCoins = getCurrentCoinsFromGui()
+    
+    if currentCoins > lastCoinCount then
+        lastCoinIncreaseTime = tick()
+        noIncreaseTimer = 0
+        hasReachedMaxCoins = false
+    else
+        noIncreaseTimer = tick() - lastCoinIncreaseTime
+    end
+    
+    if noIncreaseTimer >= 60 and currentCoins > 0 and not hasReachedMaxCoins then
+        savedTotalCoins = savedTotalCoins + currentCoins
+        hasReachedMaxCoins = true
+        print("🎯 Round complete! Saved " .. currentCoins .. " coins. Total saved: " .. savedTotalCoins)
+    end
+    
+    if currentCoins < 5 and lastCoinCount >= 45 and not hasReachedMaxCoins then
+        savedTotalCoins = savedTotalCoins + lastCoinCount
+        hasReachedMaxCoins = false
+        print("🔄 Round reset detected! Saved " .. lastCoinCount .. " coins. Total: " .. savedTotalCoins)
+    end
+    
+    if currentCoins < lastCoinCount and lastCoinCount >= 45 then
+        hasReachedMaxCoins = false
+    end
+    
+    lastCoinCount = currentCoins
+    
+    return savedTotalCoins + currentCoins
+end
+
+local function getTimerDisplay()
+    if noIncreaseTimer < 60 then
+        return string.format("%ds", math.floor(60 - noIncreaseTimer))
+    else
+        return "0s"
+    end
+end
+
+local function findMurderer()
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player then
+            local backpack = plr:FindFirstChild("Backpack")
+            local character = plr.Character
+            
+            if backpack and backpack:FindFirstChild("Knife") then
+                return plr
+            end
+            
+            if character and character:FindFirstChild("Knife") then
+                return plr
+            end
+        end
+    end
+    return nil
+end
+
+local function findSheriff()
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player then
+            local backpack = plr:FindFirstChild("Backpack")
+            local character = plr.Character
+            
+            if backpack and backpack:FindFirstChild("Gun") then
+                return plr
+            end
+            
+            if character and character:FindFirstChild("Gun") then
+                return plr
+            end
+        end
+    end
+    return nil
+end
+
+local function playerHasKnife()
+    local backpack = player:FindFirstChild("Backpack")
+    local character = player.Character
+    
+    if backpack and backpack:FindFirstChild("Knife") then
+        return true
+    end
+    
+    if character and character:FindFirstChild("Knife") then
+        return true
+    end
+    
+    return false
+end
+
+local function getSafePositionFromMurderer()
+    if not murdererPlayer or not murdererPlayer.Character then
+        return nil
+    end
+    
+    local murdererHRP = murdererPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not murdererHRP then
+        return nil
+    end
+    
+    local character = player.Character
+    if not character then
+        return nil
+    end
+    
+    local ourHRP = character:FindFirstChild("HumanoidRootPart")
+    if not ourHRP then
+        return nil
+    end
+    
+    local directionAway = (ourHRP.Position - murdererHRP.Position).Unit
+    local safeDistance = 100
+    local safePosition = murdererHRP.Position + (directionAway * safeDistance)
+    
+    return safePosition
 end
 
 local function ownsShirt(userId, shirtId)
@@ -291,17 +464,34 @@ local function getAllCoinsFromMap(coinContainer)
     
     if not coinContainer then return coins end
     
-    for _, coin in pairs(coinContainer:GetChildren()) do
+    local children = coinContainer:GetChildren()
+    for i = 1, #children do
+        local coin = children[i]
         if coin:IsA("BasePart") and coin.Name == "Coin_Server" then
-            table.insert(coins, coin)
+            coins[#coins + 1] = coin
         end
     end
     
-    print("Found " .. #coins .. " coins in current map")
     return coins
 end
 
--- NEW: Function to disable collision on all character parts
+local function refreshAvailableCoins()
+    if not cachedCoinContainer or not cachedCoinContainer.Parent then
+        return
+    end
+    
+    local currentTime = tick()
+    if currentTime - lastRefreshTime < COIN_REFRESH_RATE then
+        return
+    end
+    
+    lastRefreshTime = currentTime
+    
+    availableCoins = getAllCoinsFromMap(cachedCoinContainer)
+    
+    print("Coins refreshed: " .. #availableCoins .. " available")
+end
+
 local function disableCharacterCollision(character)
     if not character then return end
     
@@ -312,7 +502,6 @@ local function disableCharacterCollision(character)
     end
 end
 
--- NEW: Function to play the farm animation
 local function playFarmAnimation(character)
     if not character then return end
     
@@ -339,7 +528,6 @@ local function playFarmAnimation(character)
     end)
 end
 
--- NEW: Function to stop the farm animation
 local function stopFarmAnimation()
     pcall(function()
         if farmAnimationTrack then
@@ -351,7 +539,6 @@ local function stopFarmAnimation()
     end)
 end
 
--- NEW: Teleport to safe position when no coins
 local function teleportToSafePosition()
     local character = player.Character
     if not character then return end
@@ -365,7 +552,28 @@ local function teleportToSafePosition()
     print("No coins detected - teleported to safe position")
 end
 
--- IMPROVED: Tween to coin without rotation change
+local function teleportToSafePositionSlow()
+    local character = player.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+    
+    local safePosition = Vector3.new(-5038, 287, 84)
+    
+    local tween = TweenService:Create(
+        humanoidRootPart,
+        TweenInfo.new(5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+        {CFrame = CFrame.new(safePosition)}
+    )
+    
+    tween:Play()
+    print("✅ Max coins reached! Slowly moving to safe position...")
+    showNotification("50 coins collected! Moving to safe spot...")
+    
+    return tween
+end
+
 local function tweenToCoin(coin)
     if not coin or not coin.Parent then return false end
     
@@ -375,16 +583,13 @@ local function tweenToCoin(coin)
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return false end
     
-    -- Calculate distance and tween time
     local currentPos = humanoidRootPart.Position
     local targetPos = coin.Position
     local distance = (currentPos - targetPos).Magnitude
     local tweenTime = math.clamp(distance / 40, 0.5, 3)
     
-    -- Move to coin position without changing orientation
     local targetCFrame = CFrame.new(targetPos.X, targetPos.Y, targetPos.Z)
     
-    -- Create and play tween
     local tween = TweenService:Create(
         humanoidRootPart,
         TweenInfo.new(tweenTime, Enum.EasingStyle.Linear),
@@ -408,10 +613,12 @@ local function getNearestCoin()
     
     local nearestCoin = nil
     local shortestDistance = math.huge
+    local playerPos = humanoidRootPart.Position
     
-    for i, coin in ipairs(availableCoins) do
+    for i = 1, #availableCoins do
+        local coin = availableCoins[i]
         if coin and coin.Parent then
-            local distance = (humanoidRootPart.Position - coin.Position).Magnitude
+            local distance = (playerPos - coin.Position).Magnitude
             if distance < shortestDistance then
                 shortestDistance = distance
                 nearestCoin = coin
@@ -422,18 +629,6 @@ local function getNearestCoin()
     return nearestCoin
 end
 
-local function removeCollectedCoins()
-    local validCoins = {}
-    
-    for i, coin in ipairs(availableCoins) do
-        if coin and coin.Parent then
-            table.insert(validCoins, coin)
-        end
-    end
-    
-    availableCoins = validCoins
-end
-
 local function startAutofarm()
     if isRunning then
         showNotification("Already running!")
@@ -442,22 +637,19 @@ local function startAutofarm()
     
     isRunning = true
     currentCoinIndex = 1
+    lastRefreshTime = 0
+    lastCoinIncreaseTime = tick()
     
     local character = player.Character
     if character then
-        -- Disable collision on all parts
         disableCharacterCollision(character)
-        
-        -- Play farm animation
         playFarmAnimation(character)
         
-        -- Set humanoid to physics state
         local humanoid = character:FindFirstChildOfClass("Humanoid")
         if humanoid then
             humanoid:ChangeState(Enum.HumanoidStateType.Physics)
         end
         
-        -- Add anti-gravity to prevent falling
         local hrp = character:FindFirstChild("HumanoidRootPart")
         if hrp then
             local bodyVelocity = Instance.new("BodyVelocity")
@@ -468,7 +660,6 @@ local function startAutofarm()
         end
     end
     
-    -- Simple Heartbeat - maintain rotation and anti-gravity
     bodiesConnection = RunService.Heartbeat:Connect(function()
         local char = player.Character
         if char and isRunning then
@@ -478,20 +669,17 @@ local function startAutofarm()
             local humanoid = char:FindFirstChildOfClass("Humanoid")
             
             if hrp then
-                -- Keep humanoid in physics state
                 if humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Physics then
                     humanoid:ChangeState(Enum.HumanoidStateType.Physics)
                 end
                 
-                -- Constantly rotate character on Y-axis (spinning) to trigger coin collection
                 local currentTime = tick()
-                local rotationSpeed = 5 -- Rotation speed
+                local rotationSpeed = 5
                 local rotationAngle = (currentTime * rotationSpeed) % 360
                 
                 local pos = hrp.Position
                 hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, math.rad(rotationAngle), 0)
                 
-                -- Ensure anti-gravity exists
                 local antiGravity = hrp:FindFirstChild("AntiGravity")
                 if not antiGravity then
                     antiGravity = Instance.new("BodyVelocity")
@@ -508,61 +696,119 @@ local function startAutofarm()
     
     spawn(function()
         while isRunning do
+            refreshAvailableCoins()
+            task.wait(COIN_REFRESH_RATE)
+        end
+    end)
+    
+    spawn(function()
+        while isRunning do
+            updateTotalCoins()
+            task.wait(0.5)
+        end
+    end)
+    
+    -- NEW: Loop to keep character at safe position when no coins
+    spawn(function()
+        while isRunning do
+            if hasReachedMaxCoins or #availableCoins == 0 then
+                local character = player.Character
+                if character then
+                    local hrp = character:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        local safePosition = Vector3.new(-5038, 287, 84)
+                        local distance = (hrp.Position - safePosition).Magnitude
+                        
+                        -- If drifted more than 20 studs away, TP back
+                        if distance > 20 then
+                            hrp.CFrame = CFrame.new(safePosition)
+                            print("Character drifted away, teleporting back to safe position")
+                        end
+                    end
+                end
+            end
+            task.wait(3) -- Check every 3 seconds
+        end
+    end)
+    
+    spawn(function()
+        while isRunning do
             local character = player.Character
             if not character then
                 task.wait(1)
                 continue
             end
             
+            if hasReachedMaxCoins then
+                teleportToSafePositionSlow()
+                while hasReachedMaxCoins and isRunning do
+                    task.wait(1)
+                end
+                continue
+            end
+            
             local mapModel, coinContainer = getCurrentMap()
             
             if not mapModel or not coinContainer then
-                -- No map detected, go to safe position
                 teleportToSafePosition()
                 task.wait(2)
                 continue
             end
             
-            if currentMap ~= mapModel then
+            if currentMap ~= mapModel or cachedCoinContainer ~= coinContainer then
                 currentMap = mapModel
+                cachedCoinContainer = coinContainer
                 availableCoins = getAllCoinsFromMap(coinContainer)
                 currentCoinIndex = 1
+                lastRefreshTime = 0
                 print("Map changed to: " .. mapModel.Name)
             end
             
             if #availableCoins == 0 then
-                availableCoins = getAllCoinsFromMap(coinContainer)
-                currentCoinIndex = 1
-            end
-            
-            if #availableCoins == 0 then
-                -- No coins available, teleport to safe position
                 teleportToSafePosition()
                 task.wait(2)
                 continue
             end
             
-            removeCollectedCoins()
+            if avoidMurdererEnabled and not playerHasKnife() then
+                murdererPlayer = findMurderer()
+                if murdererPlayer and murdererPlayer.Character then
+                    local murdererHRP = murdererPlayer.Character:FindFirstChild("HumanoidRootPart")
+                    local ourHRP = character:FindFirstChild("HumanoidRootPart")
+                    
+                    if murdererHRP and ourHRP then
+                        local distance = (ourHRP.Position - murdererHRP.Position).Magnitude
+                        
+                        if distance < 50 then
+                            local safePos = getSafePositionFromMurderer()
+                            if safePos then
+                                ourHRP.CFrame = CFrame.new(safePos)
+                                print("⚠️ DANGER! Murderer close - escaping...")
+                                showNotification("⚠️ Murderer nearby! Escaping...")
+                                task.wait(2)
+                                continue
+                            end
+                        end
+                    end
+                end
+            end
             
-            -- Always go to nearest coin
             local nearestCoin = getNearestCoin()
             
             if nearestCoin and nearestCoin.Parent then
                 if tweenToCoin(nearestCoin) then
-                    -- Move around the coin in a small circle to ensure collection
                     local character = player.Character
                     local hrp = character and character:FindFirstChild("HumanoidRootPart")
                     
                     if hrp and nearestCoin and nearestCoin.Parent then
                         local coinPos = nearestCoin.Position
                         local startTime = tick()
-                        local circleDuration = 0.5 -- Half second to circle around coin
+                        local circleDuration = 0.5
                         
-                        -- Make small circular movements around the coin
                         while tick() - startTime < circleDuration and nearestCoin.Parent do
                             local progress = (tick() - startTime) / circleDuration
-                            local angle = progress * math.pi * 2 -- Full circle
-                            local radius = 3 -- Small radius around coin
+                            local angle = progress * math.pi * 2
+                            local radius = 3
                             
                             local offsetX = math.cos(angle) * radius
                             local offsetZ = math.sin(angle) * radius
@@ -573,28 +819,14 @@ local function startAutofarm()
                         end
                     end
                     
-                    -- Stay at coin position for remaining delay time
                     task.wait(math.max(0, TELEPORT_DELAY - 0.5))
-                    
-                    if gui and gui.Parent then
-                        pcall(function()
-                            local totalCoins = #getAllCoinsFromMap(coinContainer)
-                            local remaining = #availableCoins
-                            local claimed = totalCoins - remaining
-                            
-                            gui:FindFirstChild("CoinAutoFarmFrame"):FindFirstChild("StatusFrame"):FindFirstChild("CoinsLoadedLabel").Text = "Coins Loaded: " .. totalCoins
-                            gui:FindFirstChild("CoinAutoFarmFrame"):FindFirstChild("StatusFrame"):FindFirstChild("CoinsClaimedLabel").Text = "Coins Claimed: " .. claimed
-                        end)
-                    end
                 end
             else
-                -- No valid coin, go to safe position
                 teleportToSafePosition()
                 task.wait(1)
-                availableCoins = getAllCoinsFromMap(coinContainer)
             end
             
-            task.wait(0.3)
+            task.wait(0.1)
         end
     end)
 end
@@ -602,10 +834,13 @@ end
 local function stopAutofarm()
     isRunning = false
     
-    -- Stop animation
     stopFarmAnimation()
     
-    -- Disconnect bodies connection
+    if coinRefreshConnection then
+        coinRefreshConnection:Disconnect()
+        coinRefreshConnection = nil
+    end
+    
     if bodiesConnection then
         bodiesConnection:Disconnect()
         bodiesConnection = nil
@@ -618,26 +853,22 @@ local function stopAutofarm()
     
     local character = player.Character
     if character then
-        -- Re-enable collision
         for _, part in pairs(character:GetDescendants()) do
             if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
                 part.CanCollide = true
             end
         end
         
-        -- Reset rotation to normal
         local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
         if humanoidRootPart then
             humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position)
             
-            -- Remove anti-gravity
             local antiGravity = humanoidRootPart:FindFirstChild("AntiGravity")
             if antiGravity then
                 antiGravity:Destroy()
             end
         end
         
-        -- Reset humanoid state
         local humanoid = character:FindFirstChildOfClass("Humanoid")
         if humanoid then
             humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
@@ -647,6 +878,14 @@ local function stopAutofarm()
     availableCoins = {}
     currentCoinIndex = 1
     currentMap = nil
+    cachedCoinContainer = nil
+    lastRefreshTime = 0
+    totalCoinsCollected = 0
+    lastCoinCount = 0
+    coinGuiPath = nil
+    lastCoinIncreaseTime = 0
+    noIncreaseTimer = 0
+    hasReachedMaxCoins = false
     
     showNotification("Stopped coin collection")
 end
@@ -680,13 +919,19 @@ local function createUI()
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "CoinAutoFarmFrame"
     mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
-    mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-    mainFrame.Size = UDim2.new(0.24, 0, 0.44, 0)
+    mainFrame.Position = UDim2.new(0.5, 0, 1.5, 0) -- Start below screen
+    mainFrame.Size = UDim2.new(0.24, 0, 0.54, 0)
     mainFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     mainFrame.BorderSizePixel = 0
     mainFrame.Active = true
     mainFrame.Draggable = false
     mainFrame.Parent = gui
+    
+    -- Slide up animation
+    task.wait(0.1)
+    TweenService:Create(mainFrame, TweenInfo.new(0.8, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, 0, 0.5, 0)
+    }):Play()
     
     local isDragging = false
     local dragStart = nil
@@ -698,7 +943,7 @@ local function createUI()
             dragStart = input.Position
             startPos = mainFrame.Position
             
-            TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Size = UDim2.new(0.22, 0, 0.42, 0)}):Play()
+            TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Size = UDim2.new(0.22, 0, 0.52, 0)}):Play()
         end
     end)
     
@@ -720,7 +965,7 @@ local function createUI()
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             isDragging = false
             
-            TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Size = UDim2.new(0.24, 0, 0.44, 0)}):Play()
+            TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Size = UDim2.new(0.24, 0, 0.54, 0)}):Play()
         end
     end)
     
@@ -728,7 +973,6 @@ local function createUI()
     frameCorner.CornerRadius = UDim.new(0, 16)
     frameCorner.Parent = mainFrame
     
-    -- NEW: Improved shadow effect
     local frameShadow = Instance.new("ImageLabel")
     frameShadow.AnchorPoint = Vector2.new(0.5, 0.5)
     frameShadow.Position = UDim2.new(0.5, 0, 0.5, 3)
@@ -749,7 +993,6 @@ local function createUI()
     titleContainer.ClipsDescendants = false
     titleContainer.Parent = mainFrame
     
-    -- NEW: Enhanced title background with glow effect
     local titleBg = Instance.new("ImageLabel")
     titleBg.AnchorPoint = Vector2.new(0.5, 0.5)
     titleBg.Position = UDim2.new(0.5, 0, 0.5, 0)
@@ -774,7 +1017,6 @@ local function createUI()
     titleLabel.ZIndex = 2
     titleLabel.Parent = titleContainer
     
-    -- NEW: Enhanced text shadow effect
     local titleShadow = Instance.new("TextLabel")
     titleShadow.Size = UDim2.new(1, 0, 1, 0)
     titleShadow.Position = UDim2.new(0, 2, 0, 2)
@@ -826,15 +1068,25 @@ local function createUI()
     closeButton.MouseEnter:Connect(function()
         TweenService:Create(closeButton, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {
             BackgroundColor3 = Color3.fromRGB(255, 100, 100),
-            TextColor3 = Color3.fromRGB(255, 255, 255)
+            TextColor3 = Color3.fromRGB(255, 255, 255),
+            Size = UDim2.new(0, 35, 0, 35)
         }):Play()
     end)
     
     closeButton.MouseLeave:Connect(function()
         TweenService:Create(closeButton, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {
             BackgroundColor3 = Color3.fromRGB(245, 245, 245),
-            TextColor3 = Color3.fromRGB(100, 100, 100)
+            TextColor3 = Color3.fromRGB(100, 100, 100),
+            Size = UDim2.new(0, 32, 0, 32)
         }):Play()
+    end)
+    
+    closeButton.MouseButton1Down:Connect(function()
+        TweenService:Create(closeButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 30, 0, 30)}):Play()
+    end)
+    
+    closeButton.MouseButton1Up:Connect(function()
+        TweenService:Create(closeButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Size = UDim2.new(0, 35, 0, 35)}):Play()
     end)
     
     closeButton.MouseButton1Click:Connect(function()
@@ -883,7 +1135,7 @@ local function createUI()
     coinsLoadedLabel.Size = UDim2.new(1, -30, 0, 18)
     coinsLoadedLabel.BackgroundTransparency = 1
     coinsLoadedLabel.Font = Enum.Font.FredokaOne
-    coinsLoadedLabel.Text = "Coins Loaded: 0"
+    coinsLoadedLabel.Text = "Coins Available: 0"
     coinsLoadedLabel.TextColor3 = Color3.fromRGB(100, 100, 100)
     coinsLoadedLabel.TextSize = 12
     coinsLoadedLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -892,19 +1144,244 @@ local function createUI()
     local coinsClaimedLabel = Instance.new("TextLabel")
     coinsClaimedLabel.Name = "CoinsClaimedLabel"
     coinsClaimedLabel.Position = UDim2.new(0, 15, 0, 58)
-    coinsClaimedLabel.Size = UDim2.new(1, -30, 0, 18)
+    coinsClaimedLabel.Size = UDim2.new(0.7, -15, 0, 18)
     coinsClaimedLabel.BackgroundTransparency = 1
     coinsClaimedLabel.Font = Enum.Font.FredokaOne
-    coinsClaimedLabel.Text = "Coins Claimed: 0"
+    coinsClaimedLabel.Text = "Total Collected: 0"
     coinsClaimedLabel.TextColor3 = Color3.fromRGB(79, 179, 235)
     coinsClaimedLabel.TextSize = 12
     coinsClaimedLabel.TextXAlignment = Enum.TextXAlignment.Left
     coinsClaimedLabel.Parent = statusFrame
     
+    local timerLabel = Instance.new("TextLabel")
+    timerLabel.Name = "TimerLabel"
+    timerLabel.AnchorPoint = Vector2.new(1, 0)
+    timerLabel.Position = UDim2.new(1, -15, 0, 58)
+    timerLabel.Size = UDim2.new(0, 40, 0, 18)
+    timerLabel.BackgroundTransparency = 1
+    timerLabel.Font = Enum.Font.FredokaOne
+    timerLabel.Text = "60s"
+    timerLabel.TextColor3 = Color3.fromRGB(255, 165, 0)
+    timerLabel.TextSize = 12
+    timerLabel.TextXAlignment = Enum.TextXAlignment.Right
+    timerLabel.Parent = statusFrame
+    
+    local murderShowcaseFrame = Instance.new("Frame")
+    murderShowcaseFrame.Name = "MurderShowcaseFrame"
+    murderShowcaseFrame.Position = UDim2.new(0, 20, 0, 150)
+    murderShowcaseFrame.Size = UDim2.new(1, -40, 0, 110)
+    murderShowcaseFrame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+    murderShowcaseFrame.BorderSizePixel = 0
+    murderShowcaseFrame.Parent = mainFrame
+    
+    local murderCorner = Instance.new("UICorner")
+    murderCorner.CornerRadius = UDim.new(0, 12)
+    murderCorner.Parent = murderShowcaseFrame
+    
+    local murderTitle = Instance.new("TextLabel")
+    murderTitle.Position = UDim2.new(0, 15, 0, 8)
+    murderTitle.Size = UDim2.new(1, -30, 0, 20)
+    murderTitle.BackgroundTransparency = 1
+    murderTitle.Font = Enum.Font.FredokaOne
+    murderTitle.Text = "Murder & Sheriff Showcase"
+    murderTitle.TextColor3 = Color3.fromRGB(50, 50, 50)
+    murderTitle.TextSize = 14
+    murderTitle.TextXAlignment = Enum.TextXAlignment.Left
+    murderTitle.Parent = murderShowcaseFrame
+    
+    local murdererFrame = Instance.new("Frame")
+    murdererFrame.Position = UDim2.new(0, 10, 0, 35)
+    murdererFrame.Size = UDim2.new(1, -20, 0, 35)
+    murdererFrame.BackgroundTransparency = 1
+    murdererFrame.Parent = murderShowcaseFrame
+    
+    local murdererImage = Instance.new("ImageLabel")
+    murdererImage.Name = "MurdererImage"
+    murdererImage.Position = UDim2.new(0, 5, 0, -5)
+    murdererImage.Size = UDim2.new(0, 40, 0, 40)
+    murdererImage.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+    murdererImage.BorderSizePixel = 0
+    murdererImage.Image = ""
+    murdererImage.Parent = murdererFrame
+    
+    local murdererCorner = Instance.new("UICorner")
+    murdererCorner.CornerRadius = UDim.new(1, 0)
+    murdererCorner.Parent = murdererImage
+    
+    local murdererName = Instance.new("TextLabel")
+    murdererName.Name = "MurdererName"
+    murdererName.Position = UDim2.new(0, 52, 0, 0)
+    murdererName.Size = UDim2.new(1, -85, 0, 30)
+    murdererName.BackgroundTransparency = 1
+    murdererName.Font = Enum.Font.FredokaOne
+    murdererName.Text = "No Murderer"
+    murdererName.TextColor3 = Color3.fromRGB(255, 50, 50)
+    murdererName.TextSize = 12
+    murdererName.TextXAlignment = Enum.TextXAlignment.Left
+    murdererName.TextYAlignment = Enum.TextYAlignment.Center
+    murdererName.Parent = murdererFrame
+    
+    local murdererIcon = Instance.new("ImageLabel")
+    murdererIcon.Name = "MurdererIcon"
+    murdererIcon.AnchorPoint = Vector2.new(1, 0.5)
+    murdererIcon.Position = UDim2.new(1, -5, 0, 15)
+    murdererIcon.Size = UDim2.new(0, 28, 0, 28)
+    murdererIcon.BackgroundTransparency = 1
+    murdererIcon.Image = "rbxassetid://584555920"
+    murdererIcon.Visible = false
+    murdererIcon.Parent = murdererFrame
+    
+    local sheriffFrame = Instance.new("Frame")
+    sheriffFrame.Position = UDim2.new(0, 10, 0, 75)
+    sheriffFrame.Size = UDim2.new(1, -20, 0, 35)
+    sheriffFrame.BackgroundTransparency = 1
+    sheriffFrame.Parent = murderShowcaseFrame
+    
+    local sheriffImage = Instance.new("ImageLabel")
+    sheriffImage.Name = "SheriffImage"
+    sheriffImage.Position = UDim2.new(0, 5, 0, -5)
+    sheriffImage.Size = UDim2.new(0, 40, 0, 40)
+    sheriffImage.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+    sheriffImage.BorderSizePixel = 0
+    sheriffImage.Image = ""
+    sheriffImage.Parent = sheriffFrame
+    
+    local sheriffCorner = Instance.new("UICorner")
+    sheriffCorner.CornerRadius = UDim.new(1, 0)
+    sheriffCorner.Parent = sheriffImage
+    
+    local sheriffName = Instance.new("TextLabel")
+    sheriffName.Name = "SheriffName"
+    sheriffName.Position = UDim2.new(0, 52, 0, 0)
+    sheriffName.Size = UDim2.new(1, -85, 0, 30)
+    sheriffName.BackgroundTransparency = 1
+    sheriffName.Font = Enum.Font.FredokaOne
+    sheriffName.Text = "No Sheriff"
+    sheriffName.TextColor3 = Color3.fromRGB(50, 150, 255)
+    sheriffName.TextSize = 12
+    sheriffName.TextXAlignment = Enum.TextXAlignment.Left
+    sheriffName.TextYAlignment = Enum.TextYAlignment.Center
+    sheriffName.Parent = sheriffFrame
+    
+    local sheriffIcon = Instance.new("ImageLabel")
+    sheriffIcon.Name = "SheriffIcon"
+    sheriffIcon.AnchorPoint = Vector2.new(1, 0.5)
+    sheriffIcon.Position = UDim2.new(1, -5, 0, 15)
+    sheriffIcon.Size = UDim2.new(0, 28, 0, 28)
+    sheriffIcon.BackgroundTransparency = 1
+    sheriffIcon.Image = "http://www.roblox.com/asset/?id=197518111"
+    sheriffIcon.Visible = false
+    sheriffIcon.Parent = sheriffFrame
+    
+    local avoidMurderButton = Instance.new("TextButton")
+    avoidMurderButton.Name = "AvoidMurderButton"
+    avoidMurderButton.Position = UDim2.new(0, 20, 0, 270)
+    avoidMurderButton.Size = UDim2.new(1, -40, 0, 40)
+    avoidMurderButton.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+    avoidMurderButton.BorderSizePixel = 0
+    avoidMurderButton.AutoButtonColor = false
+    avoidMurderButton.Font = Enum.Font.FredokaOne
+    avoidMurderButton.Text = "Avoid Murder: OFF"
+    avoidMurderButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    avoidMurderButton.TextSize = 16
+    avoidMurderButton.Parent = mainFrame
+    
+    local avoidButtonCorner = Instance.new("UICorner")
+    avoidButtonCorner.CornerRadius = UDim.new(0, 12)
+    avoidButtonCorner.Parent = avoidMurderButton
+    
+    avoidMurderButton.MouseEnter:Connect(function()
+        if not isDragging then
+            TweenService:Create(avoidMurderButton, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {
+                Size = UDim2.new(1, -35, 0, 40)
+            }):Play()
+        end
+    end)
+    
+    avoidMurderButton.MouseLeave:Connect(function()
+        if not isDragging then
+            TweenService:Create(avoidMurderButton, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {
+                Size = UDim2.new(1, -40, 0, 40)
+            }):Play()
+        end
+    end)
+    
+    avoidMurderButton.MouseButton1Down:Connect(function()
+        TweenService:Create(avoidMurderButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(1, -42, 0, 38)
+        }):Play()
+    end)
+    
+    avoidMurderButton.MouseButton1Up:Connect(function()
+        TweenService:Create(avoidMurderButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(1, -35, 0, 40)
+        }):Play()
+    end)
+    
+    -- Icon frame with X overlay (initially hidden)
+    local avoidIconFrame = Instance.new("Frame")
+    avoidIconFrame.Name = "AvoidIconFrame"
+    avoidIconFrame.Position = UDim2.new(0, 8, 0.5, -18)
+    avoidIconFrame.Size = UDim2.new(0, 36, 0, 36)
+    avoidIconFrame.BackgroundTransparency = 1
+    avoidIconFrame.Visible = false
+    avoidIconFrame.Parent = avoidMurderButton
+    
+    -- Circle background
+    local iconCircle = Instance.new("Frame")
+    iconCircle.Size = UDim2.new(1, 0, 1, 0)
+    iconCircle.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    iconCircle.BorderSizePixel = 0
+    iconCircle.Parent = avoidIconFrame
+    
+    local iconCircleCorner = Instance.new("UICorner")
+    iconCircleCorner.CornerRadius = UDim.new(1, 0)
+    iconCircleCorner.Parent = iconCircle
+    
+    -- Knife icon - MUCH BIGGER
+    local knifeIcon = Instance.new("ImageLabel")
+    knifeIcon.Size = UDim2.new(1, 0, 1, 0)
+    knifeIcon.Position = UDim2.new(0, 0, 0, 0)
+    knifeIcon.BackgroundTransparency = 1
+    knifeIcon.Image = "rbxassetid://584555920"
+    knifeIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+    knifeIcon.Parent = avoidIconFrame
+    
+    -- X overlay - BIGGER and more visible
+    local xLabel = Instance.new("TextLabel")
+    xLabel.Size = UDim2.new(1, 0, 1, 0)
+    xLabel.BackgroundTransparency = 1
+    xLabel.Font = Enum.Font.FredokaOne
+    xLabel.Text = "X"
+    xLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    xLabel.TextSize = 32
+    xLabel.TextStrokeTransparency = 0
+    xLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    xLabel.ZIndex = 3
+    xLabel.Parent = avoidIconFrame
+    
+    avoidMurderButton.MouseButton1Click:Connect(function()
+        avoidMurdererEnabled = not avoidMurdererEnabled
+        
+        if avoidMurdererEnabled then
+            avoidMurderButton.Text = "     Avoid Murder: ON"
+            avoidMurderButton.BackgroundColor3 = Color3.fromRGB(255, 165, 50)
+            avoidIconFrame.Visible = true
+            showNotification("Murder avoidance ENABLED")
+        else
+            avoidMurderButton.Text = "Avoid Murder: OFF"
+            avoidMurderButton.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+            avoidIconFrame.Visible = false
+            showNotification("Murder avoidance DISABLED")
+        end
+        
+        playSound(6895079853)
+    end)
+    
     local showTrialButton = not isPremium and not trialData.used
     
     local speedControlFrame = Instance.new("Frame")
-    speedControlFrame.Position = showTrialButton and UDim2.new(0, 20, 0, 235) or UDim2.new(0, 20, 0, 155)
+    speedControlFrame.Position = UDim2.new(0, 20, 0, 320)
     speedControlFrame.Size = UDim2.new(1, -40, 0, 70)
     speedControlFrame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
     speedControlFrame.BorderSizePixel = 0
@@ -1030,7 +1507,7 @@ local function createUI()
     end
     
     local toggleButton = Instance.new("TextButton")
-    toggleButton.Position = showTrialButton and UDim2.new(0, 20, 0, 320) or UDim2.new(0, 20, 0, 240)
+    toggleButton.Position = UDim2.new(0, 20, 0, 400)
     toggleButton.Size = UDim2.new(1, -40, 0, 45)
     toggleButton.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
     toggleButton.BorderSizePixel = 0
@@ -1047,16 +1524,32 @@ local function createUI()
     
     toggleButton.MouseEnter:Connect(function()
         if not isDragging then
-            local hoverPos = showTrialButton and UDim2.new(0, 20, 0, 315) or UDim2.new(0, 20, 0, 235)
-            TweenService:Create(toggleButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = hoverPos}):Play()
+            TweenService:Create(toggleButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
+                Position = UDim2.new(0, 20, 0, 395),
+                Size = UDim2.new(1, -35, 0, 45)
+            }):Play()
         end
     end)
     
     toggleButton.MouseLeave:Connect(function()
         if not isDragging then
-            local normalPos = showTrialButton and UDim2.new(0, 20, 0, 320) or UDim2.new(0, 20, 0, 240)
-            TweenService:Create(toggleButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Position = normalPos}):Play()
+            TweenService:Create(toggleButton, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
+                Position = UDim2.new(0, 20, 0, 400),
+                Size = UDim2.new(1, -40, 0, 45)
+            }):Play()
         end
+    end)
+    
+    toggleButton.MouseButton1Down:Connect(function()
+        TweenService:Create(toggleButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(1, -42, 0, 43)
+        }):Play()
+    end)
+    
+    toggleButton.MouseButton1Up:Connect(function()
+        TweenService:Create(toggleButton, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {
+            Size = UDim2.new(1, -35, 0, 45)
+        }):Play()
     end)
     
     local coinsClaimed = 0
@@ -1084,9 +1577,42 @@ local function createUI()
     
     spawn(function()
         while gui.Parent do
-            if isRunning then
-                coinsLoadedLabel.Text = "Coins Loaded: " .. #availableCoins
-                coinsClaimedLabel.Text = "Coins Claimed: " .. coinsClaimed
+            if isRunning and cachedCoinContainer then
+                local totalCollected = updateTotalCoins()
+                
+                coinsLoadedLabel.Text = "Coins Available: " .. #availableCoins
+                coinsClaimedLabel.Text = "Total Collected: " .. totalCollected
+                timerLabel.Text = getTimerDisplay()
+                
+                murdererPlayer = findMurderer()
+                if murdererPlayer then
+                    murdererImage.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. murdererPlayer.UserId .. "&width=48&height=48&format=png"
+                    if murdererPlayer == player then
+                        murdererName.Text = murdererPlayer.Name .. " (you)"
+                    else
+                        murdererName.Text = murdererPlayer.Name
+                    end
+                    murdererIcon.Visible = true
+                else
+                    murdererImage.Image = ""
+                    murdererName.Text = "No Murderer"
+                    murdererIcon.Visible = false
+                end
+                
+                sheriffPlayer = findSheriff()
+                if sheriffPlayer then
+                    sheriffImage.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. sheriffPlayer.UserId .. "&width=48&height=48&format=png"
+                    if sheriffPlayer == player then
+                        sheriffName.Text = sheriffPlayer.Name .. " (you)"
+                    else
+                        sheriffName.Text = sheriffPlayer.Name
+                    end
+                    sheriffIcon.Visible = true
+                else
+                    sheriffImage.Image = ""
+                    sheriffName.Text = "No Sheriff"
+                    sheriffIcon.Visible = false
+                end
             end
             task.wait(0.5)
         end
@@ -1097,8 +1623,6 @@ local function createUI()
 end
 
 print("===========================================")
-print("COIN AUTO-FARM LOADING...")
-print("Made by @1sulo")
 print("===========================================")
 
 local mapsWithCoins = findAllMapsWithCoins()
@@ -1117,7 +1641,6 @@ player.CharacterAdded:Connect(function(character)
     if isRunning then
         task.wait(1)
         
-
         disableCharacterCollision(character)
         playFarmAnimation(character)
         
@@ -1126,7 +1649,6 @@ player.CharacterAdded:Connect(function(character)
             humanoid:ChangeState(Enum.HumanoidStateType.Physics)
         end
         
-        -- Add anti-gravity
         local hrp = character:FindFirstChild("HumanoidRootPart")
         if hrp then
             local bodyVelocity = Instance.new("BodyVelocity")
@@ -1138,7 +1660,4 @@ player.CharacterAdded:Connect(function(character)
     end
 end)
 
-print("===========================================")
-print("COIN AUTO-FARM READY!")
-print("Click 'Start Farming' to begin")
 print("===========================================")
