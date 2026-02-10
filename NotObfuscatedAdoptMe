@@ -1,0 +1,1923 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local isProcessing = false
+local currentTask = nil
+local taskStartTime = 0
+local taskQueue = {}
+local queueOrder = {}
+local isDragging = false
+local currentSection = "TaskManager"
+local lastMovementTime = tick()
+local selectedButton = nil
+local autoApplyInventory = false
+
+local PREMIUM_SHIRT_ID = 132268448125497
+
+local premiumSettings = {
+    walkspeed = 16,
+    jumppower = 50
+}
+
+local inventorySettings = {
+    changeImage = true,
+    targetImage = "rbxassetid://4115248712",
+    mega_neon = true,
+    neon = false,
+    rideable = true,
+    flyable = true
+}
+
+local enabledTasks = {
+    ["rbxassetid://18861598641"] = true,
+    ["rbxassetid://18861597514"] = true,
+    ["rbxassetid://18861601959"] = true,
+    ["rbxassetid://18861582601"] = true,
+    ["rbxassetid://18861599789"] = true,
+    ["rbxassetid://18861587647"] = true,
+    ["rbxassetid://18861586659"] = true,
+    ["rbxassetid://18861603059"] = true
+}
+
+local taskConfigs = {
+    ["rbxassetid://18861598641"] = {
+        name = "Sleep",
+        models = {"BasicCrib"},
+        action = "interact",
+        color = Color3.fromRGB(138, 43, 226),
+        priority = 5
+    },
+    ["rbxassetid://18861597514"] = {
+        name = "Bath",
+        models = {"CheapPetBathtub"},
+        action = "interact",
+        color = Color3.fromRGB(30, 144, 255),
+        priority = 4
+    },
+    ["rbxassetid://18861601959"] = {
+        name = "Poop",
+        models = {"Toilet"},
+        action = "interact",
+        color = Color3.fromRGB(139, 69, 19),
+        priority = 3
+    },
+    ["rbxassetid://18861582601"] = {
+        name = "Ride",
+        action = "ride",
+        color = Color3.fromRGB(255, 105, 180),
+        priority = 7
+    },
+    ["rbxassetid://18861599789"] = {
+        name = "Playground",
+        models = {"Piano"},
+        action = "piano",
+        color = Color3.fromRGB(255, 215, 0),
+        priority = 6
+    },
+    ["rbxassetid://18861587647"] = {
+        name = "Food",
+        models = {"PetFoodBowl", "AilmentsRefresh2024CheapFoodBowl"},
+        action = "interact",
+        color = Color3.fromRGB(255, 140, 0),
+        priority = 1
+    },
+    ["rbxassetid://18861586659"] = {
+        name = "Drink",
+        models = {"PetWaterBowl", "AilmentsRefresh2024CheapWaterBowl"},
+        action = "interact",
+        color = Color3.fromRGB(65, 105, 225),
+        priority = 2
+    },
+    ["rbxassetid://18861603059"] = {
+        name = "Walk",
+        action = "walk",
+        color = Color3.fromRGB(100, 200, 100),
+        priority = 8
+    }
+}
+
+local function getCharacter()
+    return player.Character
+end
+
+local function getHumanoid()
+    local char = getCharacter()
+    return char and char:FindFirstChild("Humanoid")
+end
+
+local function getRootPart()
+    local char = getCharacter()
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function hasPremium()
+    local success, owns = pcall(function()
+        return MarketplaceService:PlayerOwnsAsset(player, PREMIUM_SHIRT_ID)
+    end)
+    return success and owns
+end
+
+local function playSound(soundId, volume)
+    pcall(function()
+        local sound = Instance.new("Sound")
+        sound.SoundId = "rbxassetid://" .. soundId
+        sound.Volume = volume or 0.5
+        sound.Parent = game:GetService("SoundService")
+        sound:Play()
+        sound.Ended:Connect(function()
+            sound:Destroy()
+        end)
+    end)
+end
+
+local function showNotification(text)
+    local notifGui = Instance.new("ScreenGui")
+    notifGui.Name = "TempNotif"
+    notifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    notifGui.DisplayOrder = 9999
+    notifGui.Parent = playerGui
+
+    local notifLabel = Instance.new("TextLabel")
+    notifLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+    notifLabel.Position = UDim2.new(0.5, 0, 0.15, 0)
+    notifLabel.Size = UDim2.new(0, 0, 0, 40)
+    notifLabel.BackgroundTransparency = 1
+    notifLabel.Font = Enum.Font.FredokaOne
+    notifLabel.Text = text
+    notifLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    notifLabel.TextSize = 22
+    notifLabel.TextTransparency = 1
+    notifLabel.TextStrokeTransparency = 0.5
+    notifLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    notifLabel.Parent = notifGui
+
+    TweenService:Create(notifLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+        TextTransparency = 0,
+        Size = UDim2.new(0, 600, 0, 40)
+    }):Play()
+
+    task.wait(3)
+
+    TweenService:Create(notifLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
+        TextTransparency = 1,
+        Position = UDim2.new(0.5, 0, 0.1, 0)
+    }):Play()
+
+    task.wait(0.5)
+    notifGui:Destroy()
+end
+
+local function createSparkleExplosion(parent, position)
+    for i = 1, 15 do
+        local sparkle = Instance.new("ImageLabel")
+        sparkle.Size = UDim2.new(0, 25, 0, 25)
+        sparkle.Position = UDim2.new(position.X.Scale, position.X.Offset, position.Y.Scale, position.Y.Offset)
+        sparkle.AnchorPoint = Vector2.new(0.5, 0.5)
+        sparkle.BackgroundTransparency = 1
+        sparkle.Image = "rbxassetid://14888742106"
+        sparkle.ImageColor3 = Color3.fromHSV(math.random(), 1, 1)
+        sparkle.ZIndex = 1000
+        sparkle.Parent = parent
+        
+        local angle = math.rad((360 / 15) * i)
+        local distance = math.random(60, 120)
+        local endX = position.X.Offset + math.cos(angle) * distance
+        local endY = position.Y.Offset + math.sin(angle) * distance
+        
+        TweenService:Create(sparkle, TweenInfo.new(0.7, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+            Position = UDim2.new(position.X.Scale, endX, position.Y.Scale, endY),
+            ImageTransparency = 1,
+            Rotation = math.random(-360, 360),
+            Size = UDim2.new(0, 5, 0, 5)
+        }):Play()
+        
+        task.delay(0.7, function()
+            sparkle:Destroy()
+        end)
+    end
+end
+
+local function fireKey(keyCode)
+    VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+    task.wait(0.1)
+    VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+end
+
+local function findAllInteractables(model)
+    local interactables = {
+        proximityPrompts = {},
+        clickDetectors = {}
+    }
+    
+    for _, descendant in pairs(model:GetDescendants()) do
+        if descendant:IsA("ProximityPrompt") then
+            table.insert(interactables.proximityPrompts, descendant)
+        elseif descendant:IsA("ClickDetector") then
+            table.insert(interactables.clickDetectors, descendant)
+        end
+    end
+    
+    return interactables
+end
+
+local function triggerInteractables(model)
+    local interactables = findAllInteractables(model)
+    
+    for _, prompt in pairs(interactables.proximityPrompts) do
+        pcall(function()
+            local oldHold = prompt.HoldDuration
+            local oldEnabled = prompt.Enabled
+            local oldDistance = prompt.MaxActivationDistance
+            
+            prompt.HoldDuration = 0
+            prompt.Enabled = true
+            prompt.MaxActivationDistance = 9999
+            
+            for i = 1, 5 do
+                prompt:InputHoldBegin()
+                fireSignal(prompt.PromptButtonHoldBegan)
+                task.wait(0.05)
+                prompt:InputHoldEnd()
+                fireSignal(prompt.PromptButtonHoldEnded)
+                fireSignal(prompt.Triggered)
+                task.wait(0.05)
+            end
+            
+            prompt.HoldDuration = oldHold
+            prompt.Enabled = oldEnabled
+            prompt.MaxActivationDistance = oldDistance
+        end)
+    end
+    
+    for _, detector in pairs(interactables.clickDetectors) do
+        pcall(function()
+            local oldDistance = detector.MaxActivationDistance
+            detector.MaxActivationDistance = 9999
+            
+            for i = 1, 5 do
+                fireclickdetector(detector)
+                task.wait(0.05)
+            end
+            
+            detector.MaxActivationDistance = oldDistance
+        end)
+    end
+end
+
+local function isStuck(rootPart, lastPosition, stuckTime)
+    if not lastPosition then return false end
+    
+    local currentPos = rootPart.Position
+    local distance = (currentPos - lastPosition).Magnitude
+    
+    return distance < 2 and (tick() - stuckTime) > 3
+end
+
+local function unstuck(rootPart)
+    local humanoid = getHumanoid()
+    if not humanoid then return end
+    
+    local currentPos = rootPart.Position
+    local unstuckPos = currentPos + Vector3.new(
+        math.random(-10, 10),
+        0,
+        math.random(-10, 10)
+    )
+    
+    humanoid:MoveTo(unstuckPos)
+    task.wait(1)
+end
+
+local function moveToPosition(position, timeout)
+    local humanoid = getHumanoid()
+    local rootPart = getRootPart()
+    if not humanoid or not rootPart then return false end
+    
+    timeout = timeout or 15
+    local startTime = tick()
+    local lastPos = rootPart.Position
+    local stuckCheckTime = tick()
+    
+    humanoid:MoveTo(position)
+    lastMovementTime = tick()
+    
+    while tick() - startTime < timeout do
+        task.wait(0.2)
+        
+        if not rootPart then return false end
+        
+        if isStuck(rootPart, lastPos, stuckCheckTime) then
+            unstuck(rootPart)
+            lastPos = rootPart.Position
+            stuckCheckTime = tick()
+            humanoid:MoveTo(position)
+        end
+        
+        local distance = (rootPart.Position - position).Magnitude
+        if distance < 5 then
+            return true
+        end
+        
+        lastPos = rootPart.Position
+    end
+    
+    return false
+end
+
+local function findModelByNames(modelNames)
+    local success, result = pcall(function()
+        local furniture = workspace:FindFirstChild("HouseInteriors")
+        if not furniture then return nil end
+        
+        furniture = furniture:FindFirstChild("furniture")
+        if not furniture then return nil end
+        
+        for _, folder in pairs(furniture:GetChildren()) do
+            if folder:IsA("Folder") then
+                for _, modelName in pairs(modelNames) do
+                    local model = folder:FindFirstChild(modelName)
+                    if model then
+                        return model
+                    end
+                end
+            end
+        end
+        
+        return nil
+    end)
+    
+    return success and result or nil
+end
+
+local function getProgressGradient(taskId)
+    local success, gradient = pcall(function()
+        local ailmentsApp = playerGui:FindFirstChild("AilmentsMonitorApp")
+        if not ailmentsApp then return nil end
+        
+        local main = ailmentsApp:FindFirstChild("Main")
+        if not main then return nil end
+        
+        local ailments = main:FindFirstChild("Ailments")
+        if not ailments then return nil end
+        
+        for _, container in pairs(ailments:GetChildren()) do
+            if container.Name == "AilmentContainer" and container:IsA("Frame") then
+                local ailment = container:FindFirstChild("Ailment")
+                if ailment and ailment:IsA("ImageButton") then
+                    local background = ailment:FindFirstChild("Background")
+                    if background then
+                        local icon = background:FindFirstChild("Icon")
+                        if icon and icon:IsA("ImageLabel") and icon.Image == taskId then
+                            local color = background:FindFirstChild("Color")
+                            if color then
+                                local circularProgressBar = color:FindFirstChild("CircularProgressBar")
+                                if circularProgressBar then
+                                    local right = circularProgressBar:FindFirstChild("Right")
+                                    if right then
+                                        local frame1 = right:FindFirstChild("Frame")
+                                        if frame1 then
+                                            local frame2 = frame1:FindFirstChild("Frame")
+                                            if frame2 then
+                                                local uiGradient = frame2:FindFirstChild("UIGradient")
+                                                if uiGradient then
+                                                    return uiGradient
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        return nil
+    end)
+    
+    return success and gradient or nil
+end
+
+local function isProgressBeingMade(taskId, checkDuration)
+    local gradient = getProgressGradient(taskId)
+    if not gradient then return false end
+    
+    local initialRotation = gradient.Rotation
+    task.wait(checkDuration or 1.5)
+    
+    gradient = getProgressGradient(taskId)
+    if not gradient then return false end
+    
+    local finalRotation = gradient.Rotation
+    
+    return math.abs(finalRotation - initialRotation) > 3
+end
+
+local function getAllCurrentTasks()
+    local tasks = {}
+    
+    pcall(function()
+        local ailmentsApp = playerGui:FindFirstChild("AilmentsMonitorApp")
+        if not ailmentsApp then return end
+        
+        local main = ailmentsApp:FindFirstChild("Main")
+        if not main then return end
+        
+        local ailments = main:FindFirstChild("Ailments")
+        if not ailments then return end
+        
+        for _, container in pairs(ailments:GetChildren()) do
+            if container.Name == "AilmentContainer" and container:IsA("Frame") then
+                local ailment = container:FindFirstChild("Ailment")
+                if ailment and ailment:IsA("ImageButton") then
+                    local background = ailment:FindFirstChild("Background")
+                    if background then
+                        local icon = background:FindFirstChild("Icon")
+                        if icon and icon:IsA("ImageLabel") then
+                            local imageId = icon.Image
+                            if taskConfigs[imageId] and enabledTasks[imageId] then
+                                table.insert(tasks, imageId)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    
+    return tasks
+end
+
+local function updateTaskQueue()
+    local currentTasks = getAllCurrentTasks()
+    
+    for _, taskId in pairs(currentTasks) do
+        if not taskQueue[taskId] then
+            taskQueue[taskId] = tick()
+            table.insert(queueOrder, taskId)
+        end
+    end
+    
+    local validQueue = {}
+    for _, taskId in pairs(queueOrder) do
+        local stillExists = false
+        for _, currentTaskId in pairs(currentTasks) do
+            if currentTaskId == taskId then
+                stillExists = true
+                break
+            end
+        end
+        
+        if stillExists then
+            table.insert(validQueue, taskId)
+        else
+            taskQueue[taskId] = nil
+        end
+    end
+    
+    if hasPremium() then
+        table.sort(validQueue, function(a, b)
+            return (taskConfigs[a].priority or 99) < (taskConfigs[b].priority or 99)
+        end)
+    end
+    
+    queueOrder = validQueue
+end
+
+local function getNextTask()
+    updateTaskQueue()
+    
+    if #queueOrder > 0 then
+        return queueOrder[1]
+    end
+    
+    return nil
+end
+
+local function removeTaskFromQueue(taskId)
+    taskQueue[taskId] = nil
+    
+    local newQueue = {}
+    for _, id in pairs(queueOrder) do
+        if id ~= taskId then
+            table.insert(newQueue, id)
+        end
+    end
+    queueOrder = newQueue
+end
+
+local function executeTask(taskId)
+    local config = taskConfigs[taskId]
+    if not config then return false end
+    
+    if config.action == "interact" then
+        local model = findModelByNames(config.models)
+        if not model then return false end
+        
+        local targetPos = model:GetPivot().Position
+        
+        if moveToPosition(targetPos, 15) then
+            task.wait(1)
+            
+            local attempts = 0
+            local maxAttempts = 30
+            
+            while attempts < maxAttempts do
+                triggerInteractables(model)
+                fireKey(Enum.KeyCode.E)
+                
+                task.wait(1.5)
+                
+                if isProgressBeingMade(taskId, 1.5) then
+                    break
+                end
+                
+                attempts = attempts + 1
+                task.wait(0.5)
+            end
+            
+            return true
+        end
+        
+        return false
+        
+    elseif config.action == "piano" then
+        local model = findModelByNames(config.models)
+        if not model then return false end
+        
+        local targetPos = model:GetPivot().Position
+        
+        if moveToPosition(targetPos, 15) then
+            task.wait(1)
+            
+            local attempts = 0
+            local maxAttempts = 30
+            
+            while attempts < maxAttempts do
+                triggerInteractables(model)
+                fireKey(Enum.KeyCode.E)
+                
+                task.wait(0.5)
+                
+                fireKey(Enum.KeyCode.Two)
+                
+                task.wait(1.5)
+                
+                if isProgressBeingMade(taskId, 1.5) then
+                    break
+                end
+                
+                attempts = attempts + 1
+                task.wait(0.5)
+            end
+            
+            return true
+        end
+        
+        return false
+        
+    elseif config.action == "ride" or config.action == "walk" then
+        if config.action == "ride" then
+            fireKey(Enum.KeyCode.Two)
+            task.wait(1)
+        end
+        
+        local startTime = tick()
+        local humanoid = getHumanoid()
+        local rootPart = getRootPart()
+        
+        if not humanoid or not rootPart then return false end
+        
+        local forward = true
+        local lastStuckCheck = tick()
+        local lastPos = rootPart.Position
+        
+        while tick() - startTime < 115 do
+            updateTaskQueue()
+            
+            local stillActive = false
+            for _, id in pairs(queueOrder) do
+                if id == taskId then
+                    stillActive = true
+                    break
+                end
+            end
+            
+            if not stillActive then
+                break
+            end
+            
+            rootPart = getRootPart()
+            humanoid = getHumanoid()
+            
+            if rootPart and humanoid then
+                if isStuck(rootPart, lastPos, lastStuckCheck) then
+                    forward = not forward
+                    lastStuckCheck = tick()
+                end
+                
+                local lookDirection = rootPart.CFrame.LookVector
+                local targetPos
+                
+                if forward then
+                    targetPos = rootPart.Position + (lookDirection * 20)
+                else
+                    targetPos = rootPart.Position - (lookDirection * 20)
+                end
+                
+                humanoid:MoveTo(targetPos)
+                lastPos = rootPart.Position
+                lastMovementTime = tick()
+            end
+            
+            task.wait(0.1)
+        end
+        
+        if config.action == "ride" then
+            fireKey(Enum.KeyCode.Two)
+            task.wait(0.5)
+        end
+        
+        return true
+    end
+    
+    return false
+end
+
+local function processTaskLoop()
+    while task.wait(0.5) do
+        updateTaskQueue()
+        
+        if isProcessing then
+            if tick() - taskStartTime > 120 then
+                isProcessing = false
+                removeTaskFromQueue(currentTask)
+                currentTask = nil
+            end
+            continue
+        end
+        
+        local taskId = getNextTask()
+        
+        if taskId then
+            isProcessing = true
+            currentTask = taskId
+            taskStartTime = tick()
+            
+            task.spawn(function()
+                pcall(function()
+                    executeTask(taskId)
+                end)
+                
+                task.wait(2)
+                
+                local recheckCount = 0
+                while recheckCount < 40 do
+                    updateTaskQueue()
+                    
+                    local stillInQueue = false
+                    for _, id in pairs(queueOrder) do
+                        if id == taskId then
+                            stillInQueue = true
+                            break
+                        end
+                    end
+                    
+                    if not stillInQueue then
+                        break
+                    end
+                    
+                    task.wait(2)
+                    recheckCount = recheckCount + 1
+                end
+                
+                removeTaskFromQueue(taskId)
+                isProcessing = false
+                currentTask = nil
+            end)
+        end
+    end
+end
+
+local function applyInventoryChanges()
+    pcall(function()
+        local backpackApp = playerGui:FindFirstChild("BackpackApp")
+        if not backpackApp then return end
+        
+        local frame = backpackApp:FindFirstChild("Frame")
+        if not frame then return end
+        
+        local body = frame:FindFirstChild("Body")
+        if not body then return end
+        
+        local scrollComplex = body:FindFirstChild("ScrollComplex")
+        if not scrollComplex then return end
+        
+        local scrollingFrame = scrollComplex:FindFirstChild("ScrollingFrame")
+        if not scrollingFrame then return end
+        
+        local content = scrollingFrame:FindFirstChild("Content")
+        if not content then return end
+        
+        local pets = content:FindFirstChild("pets")
+        if not pets then return end
+        
+        local changedCount = 0
+        
+        for _, row in pairs(pets:GetChildren()) do
+            if row:IsA("Frame") and row.Name:match("^Row%d+$") then
+                for _, petFrame in pairs(row:GetChildren()) do
+                    if petFrame:IsA("Frame") and petFrame.Name ~= "add_more_pets" then
+                        local button = petFrame:FindFirstChild("Button")
+                        if button then
+                            for _, descendant in pairs(button:GetDescendants()) do
+                                if descendant:IsA("ImageLabel") and descendant.Name == "Icon" then
+                                    if inventorySettings.changeImage and descendant.Image ~= inventorySettings.targetImage then
+                                        descendant.Image = inventorySettings.targetImage
+                                        changedCount = changedCount + 1
+                                    end
+                                end
+                            end
+                            
+                            local itemImageTemplate = button:FindFirstChild("ItemImageTemplate")
+                            if itemImageTemplate and inventorySettings.changeImage then
+                                if itemImageTemplate.Image ~= inventorySettings.targetImage then
+                                    itemImageTemplate.Image = inventorySettings.targetImage
+                                    changedCount = changedCount + 1
+                                end
+                            end
+                            
+                            local tagDisplayTemplate = button:FindFirstChild("TagDisplayTemplate")
+                            if tagDisplayTemplate then
+                                local mega_neon = tagDisplayTemplate:FindFirstChild("mega_neon")
+                                local neon = tagDisplayTemplate:FindFirstChild("neon")
+                                local rideable = tagDisplayTemplate:FindFirstChild("rideable")
+                                local flyable = tagDisplayTemplate:FindFirstChild("flyable")
+                                
+                                if mega_neon then
+                                    local shouldBeVisible = inventorySettings.mega_neon
+                                    if mega_neon.Visible ~= shouldBeVisible then
+                                        mega_neon.Visible = shouldBeVisible
+                                        changedCount = changedCount + 1
+                                    end
+                                    if shouldBeVisible and neon and neon.Visible then
+                                        neon.Visible = false
+                                    end
+                                end
+                                
+                                if neon then
+                                    local shouldBeVisible = inventorySettings.neon
+                                    if neon.Visible ~= shouldBeVisible then
+                                        neon.Visible = shouldBeVisible
+                                        changedCount = changedCount + 1
+                                    end
+                                    if shouldBeVisible and mega_neon and mega_neon.Visible then
+                                        mega_neon.Visible = false
+                                    end
+                                end
+                                
+                                if rideable then
+                                    local shouldBeVisible = inventorySettings.rideable
+                                    if rideable.Visible ~= shouldBeVisible then
+                                        rideable.Visible = shouldBeVisible
+                                        changedCount = changedCount + 1
+                                    end
+                                end
+                                
+                                if flyable then
+                                    local shouldBeVisible = inventorySettings.flyable
+                                    if flyable.Visible ~= shouldBeVisible then
+                                        flyable.Visible = shouldBeVisible
+                                        changedCount = changedCount + 1
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function applyPremiumSettings()
+    local humanoid = getHumanoid()
+    if humanoid then
+        humanoid.WalkSpeed = premiumSettings.walkspeed
+        humanoid.JumpPower = premiumSettings.jumppower
+    end
+end
+
+task.spawn(function()
+    while task.wait(1) do
+        if hasPremium() then
+            applyPremiumSettings()
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(0) do
+        if autoApplyInventory then
+            applyInventoryChanges()
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(60) do
+        if tick() - lastMovementTime > 900 then
+            local humanoid = getHumanoid()
+            local rootPart = getRootPart()
+            if humanoid and rootPart then
+                local currentPos = rootPart.Position
+                humanoid:MoveTo(currentPos + Vector3.new(0, 0, 5))
+                task.wait(2)
+                humanoid:MoveTo(currentPos - Vector3.new(0, 0, 5))
+                task.wait(2)
+                humanoid:MoveTo(currentPos)
+                lastMovementTime = tick()
+            end
+        end
+    end
+end)
+
+local function showStartupNotification(text, order)
+    local delay = (order - 1) * 4
+    
+    task.delay(delay, function()
+        showNotification(text)
+    end)
+end
+
+local function makeDraggable(frame, dragHint)
+    local dragging
+    local dragInput
+    local dragStart
+    local startPos
+
+    local function update(input)
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            isDragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+
+            dragHint.Text = "Release to drop"
+            dragHint.TextColor3 = Color3.fromRGB(79, 179, 235)
+            
+            TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2.new(0.22, 0, 0.42, 0)}):Play()
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    isDragging = false
+                    
+                    dragHint.Text = "Hold to move"
+                    dragHint.TextColor3 = Color3.fromRGB(150, 150, 150)
+
+                    TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {Size = UDim2.new(0.24, 0, 0.44, 0)}):Play()
+                end
+            end)
+        end
+    end)
+
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            update(input)
+        end
+    end)
+end
+
+local function createUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "PetCareUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.DisplayOrder = 10
+    screenGui.Parent = playerGui
+
+    local statusIndicator = Instance.new("Frame")
+    statusIndicator.Name = "StatusIndicator"
+    statusIndicator.AnchorPoint = Vector2.new(0.5, 0)
+    statusIndicator.Position = UDim2.new(0.5, 0, 0, -2)
+    statusIndicator.Size = UDim2.new(1, 0, 0, 8)
+    statusIndicator.BackgroundColor3 = Color3.fromRGB(100, 200, 100)
+    statusIndicator.BorderSizePixel = 0
+    statusIndicator.ZIndex = 5
+
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.AnchorPoint = Vector2.new(0, 0.5)
+    mainFrame.Position = UDim2.new(0.02, 0, 0.5, 0)
+    mainFrame.Size = UDim2.new(0, 0, 0, 0)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.ClipsDescendants = false
+    mainFrame.Parent = screenGui
+
+    statusIndicator.Parent = mainFrame
+
+    local mainCorner = Instance.new("UICorner")
+    mainCorner.CornerRadius = UDim.new(0, 16)
+    mainCorner.Parent = mainFrame
+
+    local shadowImage = Instance.new("ImageLabel")
+    shadowImage.AnchorPoint = Vector2.new(0.5, 0.5)
+    shadowImage.Position = UDim2.new(0.5, 0, 0.5, 0)
+    shadowImage.Size = UDim2.new(1, 30, 1, 30)
+    shadowImage.BackgroundTransparency = 1
+    shadowImage.Image = "rbxassetid://5554236805"
+    shadowImage.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    shadowImage.ImageTransparency = 0.75
+    shadowImage.ScaleType = Enum.ScaleType.Slice
+    shadowImage.SliceCenter = Rect.new(23, 23, 277, 277)
+    shadowImage.ZIndex = -1
+    shadowImage.Parent = mainFrame
+
+    local titleContainer = Instance.new("Frame")
+    titleContainer.Position = UDim2.new(0, 20, 0, 20)
+    titleContainer.Size = UDim2.new(1, -40, 0, 28)
+    titleContainer.BackgroundTransparency = 1
+    titleContainer.ClipsDescendants = false
+    titleContainer.Parent = mainFrame
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "TitleLabel"
+    titleLabel.Size = UDim2.new(1, 0, 1, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Font = Enum.Font.FredokaOne
+    titleLabel.Text = "Sulo's Pet AutoFarm"
+    titleLabel.TextSize = 20
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Center
+    titleLabel.ZIndex = 2
+    titleLabel.Parent = titleContainer
+
+    local titleGradient = Instance.new("UIGradient")
+    titleGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromHSV(0.8, 0.7, 1)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromHSV(0.6, 0.7, 1)),
+        ColorSequenceKeypoint.new(1, Color3.fromHSV(0.4, 0.7, 1))
+    }
+    titleGradient.Parent = titleLabel
+
+    task.spawn(function()
+        while titleLabel.Parent do
+            for i = 0, 360, 2 do
+                if not titleLabel.Parent then break end
+                titleGradient.Rotation = i
+                task.wait(0.01)
+            end
+        end
+    end)
+
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Name = "StatusLabel"
+    statusLabel.Position = UDim2.new(0, 20, 0, 55)
+    statusLabel.Size = UDim2.new(1, -40, 0, 20)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Font = Enum.Font.FredokaOne
+    statusLabel.Text = "Monitoring tasks..."
+    statusLabel.TextColor3 = Color3.fromRGB(100, 200, 100)
+    statusLabel.TextSize = 14
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.Parent = mainFrame
+
+    local divider = Instance.new("Frame")
+    divider.Position = UDim2.new(0, 20, 0, 85)
+    divider.Size = UDim2.new(1, -110, 0, 1)
+    divider.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+    divider.BorderSizePixel = 0
+    divider.Parent = mainFrame
+
+    local sectionButtons = Instance.new("Frame")
+    sectionButtons.Name = "SectionButtons"
+    sectionButtons.Position = UDim2.new(1, -80, 0, 20)
+    sectionButtons.Size = UDim2.new(0, 60, 0, 370)
+    sectionButtons.BackgroundTransparency = 1
+    sectionButtons.Parent = mainFrame
+
+    local buttonList = Instance.new("UIListLayout")
+    buttonList.SortOrder = Enum.SortOrder.LayoutOrder
+    buttonList.Padding = UDim.new(0, 10)
+    buttonList.Parent = sectionButtons
+
+    local function createSectionButton(name, order, locked, displayText)
+        local btn = Instance.new("TextButton")
+        btn.Name = name
+        btn.Size = UDim2.new(1, 0, 0, 60)
+        btn.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+        btn.BorderSizePixel = 0
+        btn.AutoButtonColor = false
+        btn.Font = Enum.Font.FredokaOne
+        btn.Text = locked and "🔒" or (displayText or name)
+        btn.TextColor3 = Color3.fromRGB(50, 50, 50)
+        btn.TextSize = locked and 24 or 11
+        btn.LayoutOrder = order
+        btn.Parent = sectionButtons
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 10)
+        corner.Parent = btn
+        
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.fromRGB(79, 179, 235)
+        stroke.Thickness = 0
+        stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        stroke.Parent = btn
+        
+        btn.MouseEnter:Connect(function()
+            if not locked then
+                playSound(140387697208266, 2.5)
+                TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Size = UDim2.new(1, 0, 0, 65)}):Play()
+            end
+        end)
+        
+        btn.MouseLeave:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {Size = UDim2.new(1, 0, 0, 60)}):Play()
+        end)
+        
+        btn.MouseButton1Down:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Quint), {Size = UDim2.new(0.95, 0, 0, 57)}):Play()
+        end)
+        
+        btn.MouseButton1Up:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Quint), {Size = UDim2.new(1, 0, 0, 60)}):Play()
+        end)
+        
+        return btn, stroke
+    end
+
+    local queueBtn, queueStroke = createSectionButton("Queue", 1, false)
+    local taskBtn, taskStroke = createSectionButton("TaskManager", 2, false, "Task\nManager")
+    local premiumBtn, premiumStroke = createSectionButton("Premium", 3, not hasPremium())
+    local howToBtn, howToStroke = createSectionButton("HowTo", 4, false, "How to\nUse")
+
+    local contentFrame = Instance.new("Frame")
+    contentFrame.Name = "ContentFrame"
+    contentFrame.Position = UDim2.new(0, 20, 0, 100)
+    contentFrame.Size = UDim2.new(1, -110, 0, 290)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.Parent = mainFrame
+
+    local taskManagerFrame = Instance.new("ScrollingFrame")
+    taskManagerFrame.Name = "TaskManager"
+    taskManagerFrame.Size = UDim2.new(1, 0, 1, 0)
+    taskManagerFrame.BackgroundTransparency = 1
+    taskManagerFrame.BorderSizePixel = 0
+    taskManagerFrame.ScrollBarThickness = 6
+    taskManagerFrame.ScrollBarImageColor3 = Color3.fromRGB(79, 179, 235)
+    taskManagerFrame.Visible = true
+    taskManagerFrame.Parent = contentFrame
+
+    local taskList = Instance.new("UIListLayout")
+    taskList.SortOrder = Enum.SortOrder.LayoutOrder
+    taskList.Padding = UDim.new(0, 8)
+    taskList.Parent = taskManagerFrame
+
+    local totalHeight = 0
+
+    for taskId, config in pairs(taskConfigs) do
+        local taskFrame = Instance.new("Frame")
+        taskFrame.Name = config.name
+        taskFrame.Size = UDim2.new(1, -10, 0, 50)
+        taskFrame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+        taskFrame.BorderSizePixel = 0
+        taskFrame.Parent = taskManagerFrame
+        
+        local frameCorner = Instance.new("UICorner")
+        frameCorner.CornerRadius = UDim.new(0, 10)
+        frameCorner.Parent = taskFrame
+        
+        local iconBg = Instance.new("Frame")
+        iconBg.Size = UDim2.new(0, 40, 0, 40)
+        iconBg.Position = UDim2.new(0, 5, 0.5, -20)
+        iconBg.BorderSizePixel = 0
+        iconBg.Parent = taskFrame
+        
+        local iconBgCorner = Instance.new("UICorner")
+        iconBgCorner.CornerRadius = UDim.new(1, 0)
+        iconBgCorner.Parent = iconBg
+        
+        local iconGradient = Instance.new("UIGradient")
+        iconGradient.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 180, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 255, 200))
+        }
+        iconGradient.Rotation = 45
+        iconGradient.Parent = iconBg
+        
+        local iconLabel = Instance.new("ImageLabel")
+        iconLabel.Name = "Icon"
+        iconLabel.Size = UDim2.new(0, 30, 0, 30)
+        iconLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+        iconLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+        iconLabel.BackgroundTransparency = 1
+        iconLabel.Image = taskId
+        iconLabel.Parent = iconBg
+        
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Name = "TaskName"
+        nameLabel.Size = UDim2.new(1, -130, 1, 0)
+        nameLabel.Position = UDim2.new(0, 52, 0, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = config.name
+        nameLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
+        nameLabel.TextSize = 15
+        nameLabel.Font = Enum.Font.FredokaOne
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        nameLabel.Parent = taskFrame
+        
+        local toggleButton = Instance.new("TextButton")
+        toggleButton.Name = "Toggle"
+        toggleButton.Size = UDim2.new(0, 60, 0, 32)
+        toggleButton.Position = UDim2.new(1, -70, 0.5, -16)
+        toggleButton.BackgroundColor3 = enabledTasks[taskId] and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(231, 76, 60)
+        toggleButton.BorderSizePixel = 0
+        toggleButton.Text = enabledTasks[taskId] and "✓" or "❌"
+        toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+        toggleButton.TextSize = 20
+        toggleButton.Font = Enum.Font.FredokaOne
+        toggleButton.AutoButtonColor = false
+        toggleButton.Parent = taskFrame
+        
+        local buttonCorner = Instance.new("UICorner")
+        buttonCorner.CornerRadius = UDim.new(0, 8)
+        buttonCorner.Parent = toggleButton
+        
+        toggleButton.MouseButton1Click:Connect(function()
+            enabledTasks[taskId] = not enabledTasks[taskId]
+            toggleButton.Text = enabledTasks[taskId] and "✓" or "❌"
+            toggleButton.BackgroundColor3 = enabledTasks[taskId] and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(231, 76, 60)
+            
+            playSound(6895079853, 0.5)
+            
+            local mousePos = UserInputService:GetMouseLocation()
+            createSparkleExplosion(screenGui, UDim2.new(0, mousePos.X, 0, mousePos.Y - 36))
+        end)
+        
+        toggleButton.MouseEnter:Connect(function()
+            playSound(140387697208266, 2.5)
+            toggleButton.BackgroundColor3 = enabledTasks[taskId] and Color3.fromRGB(52, 230, 128) or Color3.fromRGB(245, 90, 75)
+        end)
+        
+        toggleButton.MouseLeave:Connect(function()
+            toggleButton.BackgroundColor3 = enabledTasks[taskId] and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(231, 76, 60)
+        end)
+        
+        totalHeight = totalHeight + 58
+    end
+
+    taskManagerFrame.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
+
+    local queueFrame = Instance.new("Frame")
+    queueFrame.Name = "Queue"
+    queueFrame.Size = UDim2.new(1, 0, 1, 0)
+    queueFrame.BackgroundTransparency = 1
+    queueFrame.Visible = false
+    queueFrame.Parent = contentFrame
+
+    local currentTaskFrame = Instance.new("Frame")
+    currentTaskFrame.Name = "CurrentTask"
+    currentTaskFrame.Size = UDim2.new(1, 0, 0, 60)
+    currentTaskFrame.Position = UDim2.new(0, 0, 0, 0)
+    currentTaskFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    currentTaskFrame.BorderSizePixel = 0
+    currentTaskFrame.Parent = queueFrame
+
+    local currentCorner = Instance.new("UICorner")
+    currentCorner.CornerRadius = UDim.new(0, 8)
+    currentCorner.Parent = currentTaskFrame
+
+    local currentStroke = Instance.new("UIStroke")
+    currentStroke.Color = Color3.fromRGB(100, 200, 100)
+    currentStroke.Thickness = 2
+    currentStroke.Parent = currentTaskFrame
+
+    local currentLabel = Instance.new("TextLabel")
+    currentLabel.Name = "Label"
+    currentLabel.Size = UDim2.new(1, -10, 0, 18)
+    currentLabel.Position = UDim2.new(0, 5, 0, 3)
+    currentLabel.BackgroundTransparency = 1
+    currentLabel.Text = "CURRENT"
+    currentLabel.TextColor3 = Color3.fromRGB(100, 200, 100)
+    currentLabel.TextSize = 11
+    currentLabel.Font = Enum.Font.FredokaOne
+    currentLabel.TextXAlignment = Enum.TextXAlignment.Left
+    currentLabel.Parent = currentTaskFrame
+
+    local currentIconBg = Instance.new("Frame")
+    currentIconBg.Size = UDim2.new(0, 35, 0, 35)
+    currentIconBg.Position = UDim2.new(0, 5, 0, 22)
+    currentIconBg.BorderSizePixel = 0
+    currentIconBg.Parent = currentTaskFrame
+    
+    local currentIconCorner = Instance.new("UICorner")
+    currentIconCorner.CornerRadius = UDim.new(1, 0)
+    currentIconCorner.Parent = currentIconBg
+    
+    local currentIconGradient = Instance.new("UIGradient")
+    currentIconGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 180, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 255, 200))
+    }
+    currentIconGradient.Rotation = 45
+    currentIconGradient.Parent = currentIconBg
+
+    local currentTaskIcon = Instance.new("ImageLabel")
+    currentTaskIcon.Name = "Icon"
+    currentTaskIcon.Size = UDim2.new(0, 27, 0, 27)
+    currentTaskIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+    currentTaskIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+    currentTaskIcon.BackgroundTransparency = 1
+    currentTaskIcon.Image = ""
+    currentTaskIcon.Parent = currentIconBg
+
+    local currentTaskName = Instance.new("TextLabel")
+    currentTaskName.Name = "TaskName"
+    currentTaskName.Size = UDim2.new(1, -50, 0, 35)
+    currentTaskName.Position = UDim2.new(0, 45, 0, 22)
+    currentTaskName.BackgroundTransparency = 1
+    currentTaskName.Text = "None"
+    currentTaskName.TextColor3 = Color3.fromRGB(50, 50, 50)
+    currentTaskName.TextSize = 14
+    currentTaskName.Font = Enum.Font.FredokaOne
+    currentTaskName.TextXAlignment = Enum.TextXAlignment.Left
+    currentTaskName.Parent = currentTaskFrame
+
+    local queueScrollFrame = Instance.new("ScrollingFrame")
+    queueScrollFrame.Name = "QueueList"
+    queueScrollFrame.Size = UDim2.new(1, 0, 1, -70)
+    queueScrollFrame.Position = UDim2.new(0, 0, 0, 70)
+    queueScrollFrame.BackgroundTransparency = 1
+    queueScrollFrame.BorderSizePixel = 0
+    queueScrollFrame.ScrollBarThickness = 5
+    queueScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(79, 179, 235)
+    queueScrollFrame.Parent = queueFrame
+
+    local queueListLayout = Instance.new("UIListLayout")
+    queueListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    queueListLayout.Padding = UDim.new(0, 6)
+    queueListLayout.Parent = queueScrollFrame
+
+    local premiumFrame = Instance.new("ScrollingFrame")
+    premiumFrame.Name = "Premium"
+    premiumFrame.Size = UDim2.new(1, 0, 1, 0)
+    premiumFrame.BackgroundTransparency = 1
+    premiumFrame.BorderSizePixel = 0
+    premiumFrame.ScrollBarThickness = 6
+    premiumFrame.ScrollBarImageColor3 = Color3.fromRGB(79, 179, 235)
+    premiumFrame.Visible = false
+    premiumFrame.Parent = contentFrame
+
+    local premiumList = Instance.new("UIListLayout")
+    premiumList.SortOrder = Enum.SortOrder.LayoutOrder
+    premiumList.Padding = UDim.new(0, 10)
+    premiumList.Parent = premiumFrame
+
+    if hasPremium() then
+        local walkspeedFrame = Instance.new("Frame")
+        walkspeedFrame.Size = UDim2.new(1, -10, 0, 60)
+        walkspeedFrame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+        walkspeedFrame.BorderSizePixel = 0
+        walkspeedFrame.Parent = premiumFrame
+        
+        local wsCorner = Instance.new("UICorner")
+        wsCorner.CornerRadius = UDim.new(0, 10)
+        wsCorner.Parent = walkspeedFrame
+        
+        local wsLabel = Instance.new("TextLabel")
+        wsLabel.Size = UDim2.new(1, -20, 0, 20)
+        wsLabel.Position = UDim2.new(0, 10, 0, 5)
+        wsLabel.BackgroundTransparency = 1
+        wsLabel.Font = Enum.Font.FredokaOne
+        wsLabel.Text = "Walkspeed: 16"
+        wsLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
+        wsLabel.TextSize = 13
+        wsLabel.TextXAlignment = Enum.TextXAlignment.Left
+        wsLabel.Parent = walkspeedFrame
+        
+        local wsSlider = Instance.new("TextButton")
+        wsSlider.Size = UDim2.new(1, -20, 0, 25)
+        wsSlider.Position = UDim2.new(0, 10, 0, 30)
+        wsSlider.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+        wsSlider.BorderSizePixel = 0
+        wsSlider.Text = ""
+        wsSlider.AutoButtonColor = false
+        wsSlider.Parent = walkspeedFrame
+        
+        local wsSliderCorner = Instance.new("UICorner")
+        wsSliderCorner.CornerRadius = UDim.new(1, 0)
+        wsSliderCorner.Parent = wsSlider
+        
+        local wsKnob = Instance.new("Frame")
+        wsKnob.Size = UDim2.new(0, 22, 0, 22)
+        wsKnob.Position = UDim2.new(16/55, 0, 0.5, -11)
+        wsKnob.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+        wsKnob.BorderSizePixel = 0
+        wsKnob.Parent = wsSlider
+        
+        local wsKnobCorner = Instance.new("UICorner")
+        wsKnobCorner.CornerRadius = UDim.new(1, 0)
+        wsKnobCorner.Parent = wsKnob
+        
+        local function updateWalkspeed(input)
+            local pos = math.clamp((input.Position.X - wsSlider.AbsolutePosition.X) / wsSlider.AbsoluteSize.X, 0, 1)
+            local value = math.floor(pos * 55)
+            premiumSettings.walkspeed = value
+            wsLabel.Text = "Walkspeed: " .. value
+            wsKnob.Position = UDim2.new(pos, 0, 0.5, -11)
+            applyPremiumSettings()
+        end
+        
+        wsSlider.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                updateWalkspeed(input)
+                local connection
+                connection = input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        connection:Disconnect()
+                    end
+                end)
+            end
+        end)
+        
+        wsSlider.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement then
+                if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+                    updateWalkspeed(input)
+                end
+            end
+        end)
+        
+        local jumppowerFrame = Instance.new("Frame")
+        jumppowerFrame.Size = UDim2.new(1, -10, 0, 60)
+        jumppowerFrame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+        jumppowerFrame.BorderSizePixel = 0
+        jumppowerFrame.Parent = premiumFrame
+        
+        local jpCorner = Instance.new("UICorner")
+        jpCorner.CornerRadius = UDim.new(0, 10)
+        jpCorner.Parent = jumppowerFrame
+        
+        local jpLabel = Instance.new("TextLabel")
+        jpLabel.Size = UDim2.new(1, -20, 0, 20)
+        jpLabel.Position = UDim2.new(0, 10, 0, 5)
+        jpLabel.BackgroundTransparency = 1
+        jpLabel.Font = Enum.Font.FredokaOne
+        jpLabel.Text = "Jump Power: 50"
+        jpLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
+        jpLabel.TextSize = 13
+        jpLabel.TextXAlignment = Enum.TextXAlignment.Left
+        jpLabel.Parent = jumppowerFrame
+        
+        local jpSlider = Instance.new("TextButton")
+        jpSlider.Size = UDim2.new(1, -20, 0, 25)
+        jpSlider.Position = UDim2.new(0, 10, 0, 30)
+        jpSlider.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+        jpSlider.BorderSizePixel = 0
+        jpSlider.Text = ""
+        jpSlider.AutoButtonColor = false
+        jpSlider.Parent = jumppowerFrame
+        
+        local jpSliderCorner = Instance.new("UICorner")
+        jpSliderCorner.CornerRadius = UDim.new(1, 0)
+        jpSliderCorner.Parent = jpSlider
+        
+        local jpKnob = Instance.new("Frame")
+        jpKnob.Size = UDim2.new(0, 22, 0, 22)
+        jpKnob.Position = UDim2.new(0.5, 0, 0.5, -11)
+        jpKnob.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+        jpKnob.BorderSizePixel = 0
+        jpKnob.Parent = jpSlider
+        
+        local jpKnobCorner = Instance.new("UICorner")
+        jpKnobCorner.CornerRadius = UDim.new(1, 0)
+        jpKnobCorner.Parent = jpKnob
+        
+        local function updateJumpPower(input)
+            local pos = math.clamp((input.Position.X - jpSlider.AbsolutePosition.X) / jpSlider.AbsoluteSize.X, 0, 1)
+            local value = math.floor(pos * 100)
+            premiumSettings.jumppower = value
+            jpLabel.Text = "Jump Power: " .. value
+            jpKnob.Position = UDim2.new(pos, 0, 0.5, -11)
+            applyPremiumSettings()
+        end
+        
+        jpSlider.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                updateJumpPower(input)
+                local connection
+                connection = input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        connection:Disconnect()
+                    end
+                end)
+            end
+        end)
+        
+        jpSlider.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement then
+                if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+                    updateJumpPower(input)
+                end
+            end
+        end)
+        
+        local tagTogglesTitle = Instance.new("TextLabel")
+        tagTogglesTitle.Size = UDim2.new(1, -10, 0, 25)
+        tagTogglesTitle.BackgroundTransparency = 1
+        tagTogglesTitle.Font = Enum.Font.FredokaOne
+        tagTogglesTitle.Text = "Free Pets Giver @1sulo"
+        tagTogglesTitle.TextColor3 = Color3.fromRGB(79, 179, 235)
+        tagTogglesTitle.TextSize = 15
+        tagTogglesTitle.TextXAlignment = Enum.TextXAlignment.Left
+        tagTogglesTitle.Parent = premiumFrame
+        
+        local function createTagToggle(name, settingKey)
+            local frame = Instance.new("Frame")
+            frame.Size = UDim2.new(1, -10, 0, 40)
+            frame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+            frame.BorderSizePixel = 0
+            frame.Parent = premiumFrame
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 8)
+            corner.Parent = frame
+            
+            local label = Instance.new("TextLabel")
+            label.Size = UDim2.new(1, -80, 1, 0)
+            label.Position = UDim2.new(0, 10, 0, 0)
+            label.BackgroundTransparency = 1
+            label.Font = Enum.Font.FredokaOne
+            label.Text = name
+            label.TextColor3 = Color3.fromRGB(50, 50, 50)
+            label.TextSize = 13
+            label.TextXAlignment = Enum.TextXAlignment.Left
+            label.Parent = frame
+            
+            local toggle = Instance.new("TextButton")
+            toggle.Size = UDim2.new(0, 60, 0, 28)
+            toggle.Position = UDim2.new(1, -70, 0.5, -14)
+            toggle.BackgroundColor3 = inventorySettings[settingKey] and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(231, 76, 60)
+            toggle.BorderSizePixel = 0
+            toggle.Text = inventorySettings[settingKey] and "ON" or "OFF"
+            toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+            toggle.TextSize = 12
+            toggle.Font = Enum.Font.FredokaOne
+            toggle.AutoButtonColor = false
+            toggle.Parent = frame
+            
+            local toggleCorner = Instance.new("UICorner")
+            toggleCorner.CornerRadius = UDim.new(0, 8)
+            toggleCorner.Parent = toggle
+            
+            toggle.MouseButton1Click:Connect(function()
+                inventorySettings[settingKey] = not inventorySettings[settingKey]
+                
+                if settingKey == "mega_neon" and inventorySettings[settingKey] then
+                    inventorySettings.neon = false
+                elseif settingKey == "neon" and inventorySettings[settingKey] then
+                    inventorySettings.mega_neon = false
+                end
+                
+                toggle.Text = inventorySettings[settingKey] and "ON" or "OFF"
+                toggle.BackgroundColor3 = inventorySettings[settingKey] and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(231, 76, 60)
+                
+                playSound(6895079853, 0.5)
+            end)
+            
+            toggle.MouseEnter:Connect(function()
+                playSound(140387697208266, 2.5)
+            end)
+        end
+        
+        createTagToggle("Mega Neon", "mega_neon")
+        createTagToggle("Neon", "neon")
+        createTagToggle("Rideable", "rideable")
+        createTagToggle("Flyable", "flyable")
+        
+        local autoApplyFrame = Instance.new("Frame")
+        autoApplyFrame.Size = UDim2.new(1, -10, 0, 45)
+        autoApplyFrame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+        autoApplyFrame.BorderSizePixel = 0
+        autoApplyFrame.Parent = premiumFrame
+        
+        local autoCorner = Instance.new("UICorner")
+        autoCorner.CornerRadius = UDim.new(0, 10)
+        autoCorner.Parent = autoApplyFrame
+        
+        local autoLabel = Instance.new("TextLabel")
+        autoLabel.Size = UDim2.new(1, -90, 1, 0)
+        autoLabel.Position = UDim2.new(0, 10, 0, 0)
+        autoLabel.BackgroundTransparency = 1
+        autoLabel.Font = Enum.Font.FredokaOne
+        autoLabel.Text = "Auto Apply Inventory"
+        autoLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
+        autoLabel.TextSize = 14
+        autoLabel.TextXAlignment = Enum.TextXAlignment.Left
+        autoLabel.Parent = autoApplyFrame
+        
+        local autoToggle = Instance.new("TextButton")
+        autoToggle.Size = UDim2.new(0, 70, 0, 32)
+        autoToggle.Position = UDim2.new(1, -75, 0.5, -16)
+        autoToggle.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+        autoToggle.BorderSizePixel = 0
+        autoToggle.Text = "OFF"
+        autoToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+        autoToggle.TextSize = 14
+        autoToggle.Font = Enum.Font.FredokaOne
+        autoToggle.AutoButtonColor = false
+        autoToggle.Parent = autoApplyFrame
+        
+        local autoToggleCorner = Instance.new("UICorner")
+        autoToggleCorner.CornerRadius = UDim.new(0, 8)
+        autoToggleCorner.Parent = autoToggle
+        
+        autoToggle.MouseButton1Click:Connect(function()
+            autoApplyInventory = not autoApplyInventory
+            autoToggle.Text = autoApplyInventory and "ON" or "OFF"
+            autoToggle.BackgroundColor3 = autoApplyInventory and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(231, 76, 60)
+            
+            playSound(6895079853, 0.5)
+            
+            local mousePos = UserInputService:GetMouseLocation()
+            createSparkleExplosion(screenGui, UDim2.new(0, mousePos.X, 0, mousePos.Y - 36))
+            
+            if autoApplyInventory then
+                showNotification("Auto Apply Enabled!")
+            else
+                showNotification("Auto Apply Disabled")
+            end
+        end)
+        
+        autoToggle.MouseEnter:Connect(function()
+            playSound(140387697208266, 2.5)
+        end)
+        
+        local inventoryBtn = Instance.new("TextButton")
+        inventoryBtn.Name = "InventoryOP"
+        inventoryBtn.Size = UDim2.new(1, -10, 0, 45)
+        inventoryBtn.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+        inventoryBtn.BorderSizePixel = 0
+        inventoryBtn.Font = Enum.Font.FredokaOne
+        inventoryBtn.Text = "Apply Once Now"
+        inventoryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        inventoryBtn.TextSize = 16
+        inventoryBtn.AutoButtonColor = false
+        inventoryBtn.Parent = premiumFrame
+        
+        local invCorner = Instance.new("UICorner")
+        invCorner.CornerRadius = UDim.new(0, 10)
+        invCorner.Parent = inventoryBtn
+        
+        inventoryBtn.MouseButton1Click:Connect(function()
+            playSound(6895079853, 0.5)
+            
+            local mousePos = UserInputService:GetMouseLocation()
+            createSparkleExplosion(screenGui, UDim2.new(0, mousePos.X, 0, mousePos.Y - 36))
+            
+            showNotification("Applying changes...")
+            applyInventoryChanges()
+            task.wait(1)
+            showNotification("Applied successfully!")
+        end)
+        
+        inventoryBtn.MouseEnter:Connect(function()
+            playSound(140387697208266, 2.5)
+            TweenService:Create(inventoryBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(100, 200, 255)}):Play()
+        end)
+        
+        inventoryBtn.MouseLeave:Connect(function()
+            TweenService:Create(inventoryBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quint), {BackgroundColor3 = Color3.fromRGB(79, 179, 235)}):Play()
+        end)
+    end
+
+    premiumFrame.CanvasSize = UDim2.new(0, 0, 0, 700)
+
+    local howToFrame = Instance.new("ScrollingFrame")
+    howToFrame.Name = "HowTo"
+    howToFrame.Size = UDim2.new(1, 0, 1, 0)
+    howToFrame.BackgroundTransparency = 1
+    howToFrame.BorderSizePixel = 0
+    howToFrame.ScrollBarThickness = 6
+    howToFrame.ScrollBarImageColor3 = Color3.fromRGB(79, 179, 235)
+    howToFrame.Visible = false
+    howToFrame.Parent = contentFrame
+
+    local howToList = Instance.new("UIListLayout")
+    howToList.SortOrder = Enum.SortOrder.LayoutOrder
+    howToList.Padding = UDim.new(0, 12)
+    howToList.Parent = howToFrame
+
+local importantTitle = Instance.new("TextLabel")
+importantTitle.Size = UDim2.new(1, -10, 0, 30)
+importantTitle.BackgroundTransparency = 1
+importantTitle.Font = Enum.Font.FredokaOne
+importantTitle.Text = "[IMPORTANT]"
+importantTitle.TextSize = 18
+importantTitle.TextXAlignment = Enum.TextXAlignment.Left
+importantTitle.TextColor3 = Color3.new(1, 1, 1)
+importantTitle.Parent = howToFrame
+
+    
+    local importantGradient = Instance.new("UIGradient")
+    importantGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 140, 0)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 180, 50)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 140, 0))
+    }
+    importantGradient.Parent = importantTitle
+    
+    task.spawn(function()
+        while importantTitle.Parent do
+            for i = 0, 360, 3 do
+                if not importantTitle.Parent then break end
+                importantGradient.Rotation = i
+                task.wait(0.03)
+            end
+        end
+    end)
+
+    local importantText = Instance.new("TextLabel")
+    importantText.Size = UDim2.new(1, -10, 0, 90)
+    importantText.BackgroundTransparency = 1
+    importantText.Font = Enum.Font.FredokaOne
+    importantText.Text = "For this to work at its best, on the hotbar equip a stroller, make sure the stroller will be placed at number 2. Then you can stop editing the hotbar.\n\nMake sure theres none close to you, Farm alone since it works only when youre solo."
+    importantText.TextColor3 = Color3.fromRGB(0, 0, 0)
+    importantText.TextSize = 12
+    importantText.TextXAlignment = Enum.TextXAlignment.Left
+    importantText.TextYAlignment = Enum.TextYAlignment.Top
+    importantText.TextWrapped = true
+    importantText.Parent = howToFrame
+
+    local guideTitle = Instance.new("TextLabel")
+    guideTitle.Size = UDim2.new(1, -10, 0, 30)
+    guideTitle.BackgroundTransparency = 1
+    guideTitle.Font = Enum.Font.FredokaOne
+    guideTitle.Text = "How to use"
+    guideTitle.TextColor3 = Color3.fromRGB(79, 179, 235)
+    guideTitle.TextSize = 18
+    guideTitle.TextXAlignment = Enum.TextXAlignment.Left
+    guideTitle.Parent = howToFrame
+
+    local guideText = Instance.new("TextLabel")
+    guideText.Size = UDim2.new(1, -10, 0, 80)
+    guideText.BackgroundTransparency = 1
+    guideText.Font = Enum.Font.FredokaOne
+    guideText.Text = "You will need a Basic Crib (Sleeping pot for babies $0), Basic Water (Basic bowl for pets $0), the basic Food bowl ($0), Basic Toilet ($0), Cheap Bath tub, Piano and thats it!"
+    guideText.TextColor3 = Color3.fromRGB(0, 0, 0)
+    guideText.TextSize = 12
+    guideText.TextXAlignment = Enum.TextXAlignment.Left
+    guideText.TextYAlignment = Enum.TextYAlignment.Top
+    guideText.TextWrapped = true
+    guideText.Parent = howToFrame
+
+    howToFrame.CanvasSize = UDim2.new(0, 0, 0, 300)
+
+    local function switchSection(section, button, stroke)
+        taskManagerFrame.Visible = false
+        queueFrame.Visible = false
+        premiumFrame.Visible = false
+        howToFrame.Visible = false
+        
+        taskStroke.Thickness = 0
+        queueStroke.Thickness = 0
+        premiumStroke.Thickness = 0
+        howToStroke.Thickness = 0
+        
+        if section == "TaskManager" then
+            taskManagerFrame.Visible = true
+        elseif section == "Queue" then
+            queueFrame.Visible = true
+        elseif section == "Premium" then
+            premiumFrame.Visible = true
+        elseif section == "HowTo" then
+            howToFrame.Visible = true
+        end
+        
+        stroke.Thickness = 3
+        currentSection = section
+    end
+
+    queueBtn.MouseButton1Click:Connect(function()
+        playSound(6895079853, 0.5)
+        
+        local mousePos = UserInputService:GetMouseLocation()
+        createSparkleExplosion(screenGui, UDim2.new(0, mousePos.X, 0, mousePos.Y - 36))
+        
+        switchSection("Queue", queueBtn, queueStroke)
+    end)
+
+    taskBtn.MouseButton1Click:Connect(function()
+        playSound(6895079853, 0.5)
+        
+        local mousePos = UserInputService:GetMouseLocation()
+        createSparkleExplosion(screenGui, UDim2.new(0, mousePos.X, 0, mousePos.Y - 36))
+        
+        switchSection("TaskManager", taskBtn, taskStroke)
+    end)
+
+    premiumBtn.MouseButton1Click:Connect(function()
+        if hasPremium() then
+            playSound(6895079853, 0.5)
+            
+            local mousePos = UserInputService:GetMouseLocation()
+            createSparkleExplosion(screenGui, UDim2.new(0, mousePos.X, 0, mousePos.Y - 36))
+            
+            switchSection("Premium", premiumBtn, premiumStroke)
+        else
+            showNotification("Premium Required!")
+        end
+    end)
+
+    howToBtn.MouseButton1Click:Connect(function()
+        playSound(6895079853, 0.5)
+        
+        local mousePos = UserInputService:GetMouseLocation()
+        createSparkleExplosion(screenGui, UDim2.new(0, mousePos.X, 0, mousePos.Y - 36))
+        
+        switchSection("HowTo", howToBtn, howToStroke)
+    end)
+
+    switchSection("TaskManager", taskBtn, taskStroke)
+
+    local dragHint = Instance.new("TextLabel")
+    dragHint.Name = "DragHint"
+    dragHint.Position = UDim2.new(0, 20, 1, -35)
+    dragHint.Size = UDim2.new(1, -40, 0, 16)
+    dragHint.BackgroundTransparency = 1
+    dragHint.Font = Enum.Font.FredokaOne
+    dragHint.Text = "Hold to move"
+    dragHint.TextColor3 = Color3.fromRGB(150, 150, 150)
+    dragHint.TextSize = 11
+    dragHint.Parent = mainFrame
+
+    makeDraggable(mainFrame, dragHint)
+
+    task.spawn(function()
+        while task.wait(0.3) do
+            local nextTask = getNextTask()
+            
+            if isProcessing and currentTask then
+                local config = taskConfigs[currentTask]
+                if config then
+                    statusLabel.Text = "Processing: " .. config.name
+                    statusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+                    statusIndicator.BackgroundColor3 = Color3.fromRGB(255, 200, 100)
+                    
+                    currentTaskIcon.Image = currentTask
+                    currentTaskName.Text = config.name
+                    currentStroke.Color = config.color
+                    currentLabel.TextColor3 = config.color
+                end
+            elseif nextTask then
+                local config = taskConfigs[nextTask]
+                if config then
+                    statusLabel.Text = "Detected: " .. config.name
+                    statusLabel.TextColor3 = Color3.fromRGB(100, 200, 255)
+                    statusIndicator.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+                    
+                    currentTaskIcon.Image = ""
+                    currentTaskName.Text = "Waiting..."
+                    currentStroke.Color = Color3.fromRGB(100, 100, 120)
+                    currentLabel.TextColor3 = Color3.fromRGB(100, 100, 120)
+                end
+            else
+                statusLabel.Text = "Monitoring tasks..."
+                statusLabel.TextColor3 = Color3.fromRGB(100, 200, 100)
+                statusIndicator.BackgroundColor3 = Color3.fromRGB(100, 200, 100)
+                
+                currentTaskIcon.Image = ""
+                currentTaskName.Text = "None"
+                currentStroke.Color = Color3.fromRGB(100, 200, 100)
+                currentLabel.TextColor3 = Color3.fromRGB(100, 200, 100)
+            end
+            
+            for _, child in pairs(queueScrollFrame:GetChildren()) do
+                if child:IsA("Frame") then
+                    child:Destroy()
+                end
+            end
+            
+            local yOffset = 0
+            local showCount = 0
+            
+            for i, taskId in pairs(queueOrder) do
+                if i > 1 then
+                    showCount = showCount + 1
+                    if showCount > 6 then break end
+                    
+                    local config = taskConfigs[taskId]
+                    if config then
+                        local queueItem = Instance.new("Frame")
+                        queueItem.Name = "QueueItem" .. i
+                        queueItem.Size = UDim2.new(1, 0, 0, 42)
+                        queueItem.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                        queueItem.BorderSizePixel = 0
+                        queueItem.LayoutOrder = i
+                        queueItem.Parent = queueScrollFrame
+                        
+                        local itemCorner = Instance.new("UICorner")
+                        itemCorner.CornerRadius = UDim.new(0, 6)
+                        itemCorner.Parent = queueItem
+                        
+                        local itemStroke = Instance.new("UIStroke")
+                        itemStroke.Color = config.color
+                        itemStroke.Thickness = 1
+                        itemStroke.Parent = queueItem
+                        
+                        local posLabel = Instance.new("TextLabel")
+                        posLabel.Size = UDim2.new(0, 25, 1, 0)
+                        posLabel.Position = UDim2.new(0, 3, 0, 0)
+                        posLabel.BackgroundTransparency = 1
+                        posLabel.Text = "#" .. (i - 1)
+                        posLabel.TextColor3 = config.color
+                        posLabel.TextSize = 12
+                        posLabel.Font = Enum.Font.FredokaOne
+                        posLabel.Parent = queueItem
+                        
+                        local queueIconBg = Instance.new("Frame")
+                        queueIconBg.Size = UDim2.new(0, 32, 0, 32)
+                        queueIconBg.Position = UDim2.new(0, 30, 0.5, -16)
+                        queueIconBg.BorderSizePixel = 0
+                        queueIconBg.Parent = queueItem
+                        
+                        local queueIconCorner = Instance.new("UICorner")
+                        queueIconCorner.CornerRadius = UDim.new(1, 0)
+                        queueIconCorner.Parent = queueIconBg
+                        
+                        local queueIconGradient = Instance.new("UIGradient")
+                        queueIconGradient.Color = ColorSequence.new{
+                            ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 180, 255)),
+                            ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 255, 200))
+                        }
+                        queueIconGradient.Rotation = 45
+                        queueIconGradient.Parent = queueIconBg
+                        
+                        local itemIcon = Instance.new("ImageLabel")
+                        itemIcon.Size = UDim2.new(0, 24, 0, 24)
+                        itemIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+                        itemIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+                        itemIcon.BackgroundTransparency = 1
+                        itemIcon.Image = taskId
+                        itemIcon.Parent = queueIconBg
+                        
+                        local itemName = Instance.new("TextLabel")
+                        itemName.Size = UDim2.new(1, -70, 1, 0)
+                        itemName.Position = UDim2.new(0, 66, 0, 0)
+                        itemName.BackgroundTransparency = 1
+                        itemName.Text = config.name
+                        itemName.TextColor3 = Color3.fromRGB(50, 50, 50)
+                        itemName.TextSize = 13
+                        itemName.Font = Enum.Font.FredokaOne
+                        itemName.TextXAlignment = Enum.TextXAlignment.Left
+                        itemName.Parent = queueItem
+                        
+                        yOffset = yOffset + 48
+                    end
+                end
+            end
+            
+            queueScrollFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset)
+        end
+    end)
+
+    mainFrame:TweenSize(UDim2.new(0.24, 0, 0.44, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 0.5, true)
+
+    return screenGui
+end
+
+player.CharacterAdded:Connect(function(newChar)
+    task.wait(1)
+    isProcessing = false
+    currentTask = nil
+    taskQueue = {}
+    queueOrder = {}
+end)
+
+showStartupNotification("On pet farm, make sure you have pet follows off", 2)
+showStartupNotification("Avoid playing with friends on the same place, Play SOLO", 3.5)
+
+task.wait(1)
+createUI()
+task.spawn(processTaskLoop)
