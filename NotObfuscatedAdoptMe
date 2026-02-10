@@ -18,6 +18,9 @@ local currentSection = "TaskManager"
 local lastMovementTime = tick()
 local selectedButton = nil
 local autoApplyInventory = false
+local taskRetryCount = {}
+local taskFailCount = {}
+local deprioritizedTasks = {}
 
 local PREMIUM_SHIRT_ID = 132268448125497
 
@@ -35,6 +38,12 @@ local inventorySettings = {
     flyable = true
 }
 
+local hotbarSettings = {
+    ride = 2,
+    throw = 3,
+    maxRetries = 10
+}
+
 local enabledTasks = {
     ["rbxassetid://18861598641"] = true,
     ["rbxassetid://18861597514"] = true,
@@ -43,7 +52,8 @@ local enabledTasks = {
     ["rbxassetid://18861599789"] = true,
     ["rbxassetid://18861587647"] = true,
     ["rbxassetid://18861586659"] = true,
-    ["rbxassetid://18861603059"] = true
+    ["rbxassetid://18861603059"] = true,
+    ["rbxassetid://18861600682"] = true
 }
 
 local taskConfigs = {
@@ -72,7 +82,8 @@ local taskConfigs = {
         name = "Ride",
         action = "ride",
         color = Color3.fromRGB(255, 105, 180),
-        priority = 7
+        priority = 7,
+        usesHotbar = true
     },
     ["rbxassetid://18861599789"] = {
         name = "Playground",
@@ -100,6 +111,13 @@ local taskConfigs = {
         action = "walk",
         color = Color3.fromRGB(100, 200, 100),
         priority = 8
+    },
+    ["rbxassetid://18861600682"] = {
+        name = "Throw",
+        action = "throw",
+        color = Color3.fromRGB(255, 69, 0),
+        priority = 6,
+        usesHotbar = true
     }
 }
 
@@ -204,10 +222,33 @@ local function createSparkleExplosion(parent, position)
     end
 end
 
+local function getKeyCodeFromNumber(num)
+    local keyCodes = {
+        [1] = Enum.KeyCode.One,
+        [2] = Enum.KeyCode.Two,
+        [3] = Enum.KeyCode.Three,
+        [4] = Enum.KeyCode.Four,
+        [5] = Enum.KeyCode.Five,
+        [6] = Enum.KeyCode.Six,
+        [7] = Enum.KeyCode.Seven,
+        [8] = Enum.KeyCode.Eight,
+        [9] = Enum.KeyCode.Nine
+    }
+    return keyCodes[num]
+end
+
 local function fireKey(keyCode)
     VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
     task.wait(0.1)
     VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+end
+
+local function clickScreen()
+    local camera = workspace.CurrentCamera
+    local screenCenter = camera.ViewportSize / 2
+    VirtualInputManager:SendMouseButtonEvent(screenCenter.X, screenCenter.Y, 0, true, game, 0)
+    task.wait(0.05)
+    VirtualInputManager:SendMouseButtonEvent(screenCenter.X, screenCenter.Y, 0, false, game, 0)
 end
 
 local function findAllInteractables(model)
@@ -277,22 +318,28 @@ local function isStuck(rootPart, lastPosition, stuckTime)
     local currentPos = rootPart.Position
     local distance = (currentPos - lastPosition).Magnitude
     
-    return distance < 2 and (tick() - stuckTime) > 3
+    return distance < 2 and (tick() - stuckTime) > 2
 end
 
 local function unstuck(rootPart)
     local humanoid = getHumanoid()
     if not humanoid then return end
     
+    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    task.wait(0.3)
+    
     local currentPos = rootPart.Position
     local unstuckPos = currentPos + Vector3.new(
-        math.random(-10, 10),
-        0,
-        math.random(-10, 10)
+        math.random(-15, 15),
+        2,
+        math.random(-15, 15)
     )
     
     humanoid:MoveTo(unstuckPos)
-    task.wait(1)
+    task.wait(0.8)
+    
+    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    task.wait(0.3)
 end
 
 local function moveToPosition(position, timeout)
@@ -304,14 +351,24 @@ local function moveToPosition(position, timeout)
     local startTime = tick()
     local lastPos = rootPart.Position
     local stuckCheckTime = tick()
+    local jumpTimer = tick()
     
     humanoid:MoveTo(position)
     lastMovementTime = tick()
     
     while tick() - startTime < timeout do
-        task.wait(0.2)
+        task.wait(0.1)
         
-        if not rootPart then return false end
+        rootPart = getRootPart()
+        humanoid = getHumanoid()
+        if not rootPart or not humanoid then return false end
+        
+        if tick() - jumpTimer > 1.5 then
+            if math.random(1, 3) == 1 then
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+            jumpTimer = tick()
+        end
         
         if isStuck(rootPart, lastPos, stuckCheckTime) then
             unstuck(rootPart)
@@ -406,52 +463,67 @@ local function getProgressGradient(taskId)
     return success and gradient or nil
 end
 
+local function taskStillExists(taskId)
+    return getProgressGradient(taskId) ~= nil
+end
+
 local function isProgressBeingMade(taskId, checkDuration)
     local gradient = getProgressGradient(taskId)
     if not gradient then return false end
     
     local initialRotation = gradient.Rotation
-    task.wait(checkDuration or 1.5)
+    task.wait(checkDuration or 1)
     
     gradient = getProgressGradient(taskId)
     if not gradient then return false end
     
     local finalRotation = gradient.Rotation
     
-    return math.abs(finalRotation - initialRotation) > 3
+    return math.abs(finalRotation - initialRotation) > 2
 end
 
 local function getAllCurrentTasks()
     local tasks = {}
+    local maxRetries = 3
+    local retryCount = 0
     
-    pcall(function()
-        local ailmentsApp = playerGui:FindFirstChild("AilmentsMonitorApp")
-        if not ailmentsApp then return end
-        
-        local main = ailmentsApp:FindFirstChild("Main")
-        if not main then return end
-        
-        local ailments = main:FindFirstChild("Ailments")
-        if not ailments then return end
-        
-        for _, container in pairs(ailments:GetChildren()) do
-            if container.Name == "AilmentContainer" and container:IsA("Frame") then
-                local ailment = container:FindFirstChild("Ailment")
-                if ailment and ailment:IsA("ImageButton") then
-                    local background = ailment:FindFirstChild("Background")
-                    if background then
-                        local icon = background:FindFirstChild("Icon")
-                        if icon and icon:IsA("ImageLabel") then
-                            local imageId = icon.Image
-                            if taskConfigs[imageId] and enabledTasks[imageId] then
-                                table.insert(tasks, imageId)
+    while retryCount < maxRetries do
+        local success = pcall(function()
+            local ailmentsApp = playerGui:FindFirstChild("AilmentsMonitorApp")
+            if not ailmentsApp then return end
+            
+            local main = ailmentsApp:FindFirstChild("Main")
+            if not main then return end
+            
+            local ailments = main:FindFirstChild("Ailments")
+            if not ailments then return end
+            
+            for _, container in pairs(ailments:GetChildren()) do
+                if container.Name == "AilmentContainer" and container:IsA("Frame") then
+                    local ailment = container:FindFirstChild("Ailment")
+                    if ailment and ailment:IsA("ImageButton") then
+                        local background = ailment:FindFirstChild("Background")
+                        if background then
+                            local icon = background:FindFirstChild("Icon")
+                            if icon and icon:IsA("ImageLabel") then
+                                local imageId = icon.Image
+                                if taskConfigs[imageId] and enabledTasks[imageId] then
+                                    table.insert(tasks, imageId)
+                                end
                             end
                         end
                     end
                 end
             end
+        end)
+        
+        if success and #tasks > 0 then
+            break
         end
-    end)
+        
+        retryCount = retryCount + 1
+        task.wait(0.2)
+    end
     
     return tasks
 end
@@ -463,6 +535,12 @@ local function updateTaskQueue()
         if not taskQueue[taskId] then
             taskQueue[taskId] = tick()
             table.insert(queueOrder, taskId)
+            if not taskRetryCount[taskId] then
+                taskRetryCount[taskId] = 0
+            end
+            if not taskFailCount[taskId] then
+                taskFailCount[taskId] = 0
+            end
         end
     end
     
@@ -480,12 +558,24 @@ local function updateTaskQueue()
             table.insert(validQueue, taskId)
         else
             taskQueue[taskId] = nil
+            taskRetryCount[taskId] = 0
+            taskFailCount[taskId] = 0
+            deprioritizedTasks[taskId] = nil
         end
     end
     
     if hasPremium() then
         table.sort(validQueue, function(a, b)
-            return (taskConfigs[a].priority or 99) < (taskConfigs[b].priority or 99)
+            local aPrio = (taskConfigs[a].priority or 99)
+            local bPrio = (taskConfigs[b].priority or 99)
+            
+            if deprioritizedTasks[a] and not deprioritizedTasks[b] then
+                return false
+            elseif not deprioritizedTasks[a] and deprioritizedTasks[b] then
+                return true
+            end
+            
+            return aPrio < bPrio
         end)
     end
     
@@ -521,30 +611,39 @@ local function executeTask(taskId)
     if config.action == "interact" then
         local model = findModelByNames(config.models)
         if not model then return false end
+        if not taskStillExists(taskId) then return true end
         
         local targetPos = model:GetPivot().Position
         
         if moveToPosition(targetPos, 15) then
-            task.wait(1)
+            task.wait(0.5)
             
             local attempts = 0
-            local maxAttempts = 30
+            local maxAttempts = hotbarSettings.maxRetries * 4
             
             while attempts < maxAttempts do
+                if not taskStillExists(taskId) then
+                    return true
+                end
+                
                 triggerInteractables(model)
                 fireKey(Enum.KeyCode.E)
                 
-                task.wait(1.5)
+                task.wait(1)
                 
-                if isProgressBeingMade(taskId, 1.5) then
-                    break
+                if not taskStillExists(taskId) then
+                    return true
+                end
+                
+                if isProgressBeingMade(taskId, 1) then
+                    return true
                 end
                 
                 attempts = attempts + 1
-                task.wait(0.5)
+                task.wait(0.3)
             end
             
-            return true
+            return false
         end
         
         return false
@@ -552,43 +651,117 @@ local function executeTask(taskId)
     elseif config.action == "piano" then
         local model = findModelByNames(config.models)
         if not model then return false end
+        if not taskStillExists(taskId) then return true end
         
         local targetPos = model:GetPivot().Position
         
         if moveToPosition(targetPos, 15) then
-            task.wait(1)
+            task.wait(0.5)
             
-            local attempts = 0
-            local maxAttempts = 30
+            local pianoRetries = 0
+            local maxPianoRetries = hotbarSettings.maxRetries
             
-            while attempts < maxAttempts do
-                triggerInteractables(model)
-                fireKey(Enum.KeyCode.E)
-                
-                task.wait(0.5)
-                
-                fireKey(Enum.KeyCode.Two)
-                
-                task.wait(1.5)
-                
-                if isProgressBeingMade(taskId, 1.5) then
-                    break
+            while pianoRetries < maxPianoRetries do
+                if not taskStillExists(taskId) then
+                    return true
                 end
                 
-                attempts = attempts + 1
-                task.wait(0.5)
+                local interactionAttempts = 0
+                local maxInteractionAttempts = 5
+                local progressDetected = false
+                
+                while interactionAttempts < maxInteractionAttempts do
+                    if not taskStillExists(taskId) then
+                        return true
+                    end
+                    
+                    triggerInteractables(model)
+                    fireKey(Enum.KeyCode.E)
+                    task.wait(0.3)
+                    
+                    if not taskStillExists(taskId) then
+                        return true
+                    end
+                    
+                    fireKey(Enum.KeyCode.Two)
+                    task.wait(0.5)
+                    
+                    if not taskStillExists(taskId) then
+                        return true
+                    end
+                    
+                    local checkStartTime = tick()
+                    local rotationCheckDuration = 5
+                    local initialGradient = getProgressGradient(taskId)
+                    
+                    if initialGradient then
+                        local initialRotation = initialGradient.Rotation
+                        
+                        local elapsed = 0
+                        while elapsed < rotationCheckDuration do
+                            task.wait(0.5)
+                            elapsed = elapsed + 0.5
+                            
+                            if not taskStillExists(taskId) then
+                                return true
+                            end
+                        end
+                        
+                        local finalGradient = getProgressGradient(taskId)
+                        if finalGradient then
+                            local finalRotation = finalGradient.Rotation
+                            if math.abs(finalRotation - initialRotation) > 5 then
+                                progressDetected = true
+                                return true
+                            end
+                        else
+                            return true
+                        end
+                    else
+                        return true
+                    end
+                    
+                    interactionAttempts = interactionAttempts + 1
+                end
+                
+                if not progressDetected then
+                    pianoRetries = pianoRetries + 1
+                    
+                    if pianoRetries >= maxPianoRetries then
+                        deprioritizedTasks[taskId] = true
+                        taskFailCount[taskId] = (taskFailCount[taskId] or 0) + 1
+                        return false
+                    end
+                    
+                    if not taskStillExists(taskId) then
+                        return true
+                    end
+                    
+                    moveToPosition(targetPos + Vector3.new(math.random(-5, 5), 0, math.random(-5, 5)), 5)
+                    task.wait(0.5)
+                    
+                    if not taskStillExists(taskId) then
+                        return true
+                    end
+                    
+                    moveToPosition(targetPos, 10)
+                    task.wait(0.5)
+                else
+                    return true
+                end
             end
             
-            return true
+            return false
         end
         
         return false
         
-    elseif config.action == "ride" or config.action == "walk" then
-        if config.action == "ride" then
-            fireKey(Enum.KeyCode.Two)
-            task.wait(1)
-        end
+    elseif config.action == "ride" then
+        if not taskStillExists(taskId) then return true end
+        
+        local rideKey = getKeyCodeFromNumber(hotbarSettings.ride)
+        fireKey(rideKey)
+        task.wait(1)
         
         local startTime = tick()
         local humanoid = getHumanoid()
@@ -599,8 +772,13 @@ local function executeTask(taskId)
         local forward = true
         local lastStuckCheck = tick()
         local lastPos = rootPart.Position
+        local jumpTimer = tick()
         
         while tick() - startTime < 115 do
+            if not taskStillExists(taskId) then
+                break
+            end
+            
             updateTaskQueue()
             
             local stillActive = false
@@ -619,8 +797,14 @@ local function executeTask(taskId)
             humanoid = getHumanoid()
             
             if rootPart and humanoid then
+                if tick() - jumpTimer > 2 and math.random(1, 4) == 1 then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    jumpTimer = tick()
+                end
+                
                 if isStuck(rootPart, lastPos, lastStuckCheck) then
                     forward = not forward
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
                     lastStuckCheck = tick()
                 end
                 
@@ -628,9 +812,9 @@ local function executeTask(taskId)
                 local targetPos
                 
                 if forward then
-                    targetPos = rootPart.Position + (lookDirection * 20)
+                    targetPos = rootPart.Position + (lookDirection * 25)
                 else
-                    targetPos = rootPart.Position - (lookDirection * 20)
+                    targetPos = rootPart.Position - (lookDirection * 25)
                 end
                 
                 humanoid:MoveTo(targetPos)
@@ -641,10 +825,126 @@ local function executeTask(taskId)
             task.wait(0.1)
         end
         
-        if config.action == "ride" then
-            fireKey(Enum.KeyCode.Two)
-            task.wait(0.5)
+        local rideKey = getKeyCodeFromNumber(hotbarSettings.ride)
+        fireKey(rideKey)
+        task.wait(0.5)
+        
+        return true
+        
+    elseif config.action == "walk" then
+        if not taskStillExists(taskId) then return true end
+        
+        local startTime = tick()
+        local humanoid = getHumanoid()
+        local rootPart = getRootPart()
+        
+        if not humanoid or not rootPart then return false end
+        
+        local forward = true
+        local lastStuckCheck = tick()
+        local lastPos = rootPart.Position
+        local jumpTimer = tick()
+        
+        while tick() - startTime < 115 do
+            if not taskStillExists(taskId) then
+                break
+            end
+            
+            updateTaskQueue()
+            
+            local stillActive = false
+            for _, id in pairs(queueOrder) do
+                if id == taskId then
+                    stillActive = true
+                    break
+                end
+            end
+            
+            if not stillActive then
+                break
+            end
+            
+            rootPart = getRootPart()
+            humanoid = getHumanoid()
+            
+            if rootPart and humanoid then
+                if tick() - jumpTimer > 2 and math.random(1, 4) == 1 then
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    jumpTimer = tick()
+                end
+                
+                if isStuck(rootPart, lastPos, lastStuckCheck) then
+                    forward = not forward
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    lastStuckCheck = tick()
+                end
+                
+                local lookDirection = rootPart.CFrame.LookVector
+                local targetPos
+                
+                if forward then
+                    targetPos = rootPart.Position + (lookDirection * 25)
+                else
+                    targetPos = rootPart.Position - (lookDirection * 25)
+                end
+                
+                humanoid:MoveTo(targetPos)
+                lastPos = rootPart.Position
+                lastMovementTime = tick()
+            end
+            
+            task.wait(0.1)
         end
+        
+        return true
+        
+    elseif config.action == "throw" then
+        if not taskStillExists(taskId) then return true end
+        
+        local throwKey = getKeyCodeFromNumber(hotbarSettings.throw)
+        fireKey(throwKey)
+        task.wait(0.8)
+        
+        local startTime = tick()
+        local lastThrowTime = tick()
+        
+        while tick() - startTime < 120 do
+            if not taskStillExists(taskId) then
+                break
+            end
+            
+            updateTaskQueue()
+            
+            local stillActive = false
+            for _, id in pairs(queueOrder) do
+                if id == taskId then
+                    stillActive = true
+                    break
+                end
+            end
+            
+            if not stillActive then
+                break
+            end
+            
+            if tick() - lastThrowTime >= 4 then
+                for i = 1, 3 do
+                    if not taskStillExists(taskId) then
+                        break
+                    end
+                    
+                    clickScreen()
+                    task.wait(0.15)
+                end
+                
+                lastThrowTime = tick()
+            end
+            
+            task.wait(0.2)
+        end
+        
+        fireKey(throwKey)
+        task.wait(0.5)
         
         return true
     end
@@ -652,13 +952,21 @@ local function executeTask(taskId)
     return false
 end
 
-local function processTaskLoop()
-    while task.wait(0.5) do
+task.spawn(function()
+    while task.wait(1) do
         updateTaskQueue()
-        
+    end
+end)
+
+local function processTaskLoop()
+    while task.wait(0.3) do
         if isProcessing then
             if tick() - taskStartTime > 120 then
                 isProcessing = false
+                taskFailCount[currentTask] = (taskFailCount[currentTask] or 0) + 1
+                if taskFailCount[currentTask] >= 3 then
+                    deprioritizedTasks[currentTask] = true
+                end
                 removeTaskFromQueue(currentTask)
                 currentTask = nil
             end
@@ -671,17 +979,27 @@ local function processTaskLoop()
             isProcessing = true
             currentTask = taskId
             taskStartTime = tick()
+            taskRetryCount[taskId] = (taskRetryCount[taskId] or 0) + 1
             
             task.spawn(function()
+                local success = false
                 pcall(function()
-                    executeTask(taskId)
+                    success = executeTask(taskId)
                 end)
+                
+                if not success then
+                    taskFailCount[taskId] = (taskFailCount[taskId] or 0) + 1
+                end
                 
                 task.wait(2)
                 
                 local recheckCount = 0
-                while recheckCount < 40 do
+                while recheckCount < 50 do
                     updateTaskQueue()
+                    
+                    if not taskStillExists(taskId) then
+                        break
+                    end
                     
                     local stillInQueue = false
                     for _, id in pairs(queueOrder) do
@@ -695,7 +1013,7 @@ local function processTaskLoop()
                         break
                     end
                     
-                    task.wait(2)
+                    task.wait(1.5)
                     recheckCount = recheckCount + 1
                 end
                 
@@ -817,7 +1135,7 @@ local function applyPremiumSettings()
 end
 
 task.spawn(function()
-    while task.wait(1) do
+    while task.wait(0.5) do
         if hasPremium() then
             applyPremiumSettings()
         end
@@ -833,15 +1151,19 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    while task.wait(60) do
+    while task.wait(45) do
         if tick() - lastMovementTime > 900 then
             local humanoid = getHumanoid()
             local rootPart = getRootPart()
             if humanoid and rootPart then
                 local currentPos = rootPart.Position
-                humanoid:MoveTo(currentPos + Vector3.new(0, 0, 5))
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                task.wait(0.5)
+                humanoid:MoveTo(currentPos + Vector3.new(0, 0, 8))
                 task.wait(2)
-                humanoid:MoveTo(currentPos - Vector3.new(0, 0, 5))
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                task.wait(0.5)
+                humanoid:MoveTo(currentPos - Vector3.new(0, 0, 8))
                 task.wait(2)
                 humanoid:MoveTo(currentPos)
                 lastMovementTime = tick()
@@ -1012,7 +1334,7 @@ local function createUI()
     local sectionButtons = Instance.new("Frame")
     sectionButtons.Name = "SectionButtons"
     sectionButtons.Position = UDim2.new(1, -80, 0, 20)
-    sectionButtons.Size = UDim2.new(0, 60, 0, 370)
+    sectionButtons.Size = UDim2.new(0, 60, 0, 430)
     sectionButtons.BackgroundTransparency = 1
     sectionButtons.Parent = mainFrame
 
@@ -1069,8 +1391,9 @@ local function createUI()
 
     local queueBtn, queueStroke = createSectionButton("Queue", 1, false)
     local taskBtn, taskStroke = createSectionButton("TaskManager", 2, false, "Task\nManager")
-    local premiumBtn, premiumStroke = createSectionButton("Premium", 3, not hasPremium())
-    local howToBtn, howToStroke = createSectionButton("HowTo", 4, false, "How to\nUse")
+    local hotbarBtn, hotbarStroke = createSectionButton("HotBar", 3, false, "HotBar\nSettings")
+    local premiumBtn, premiumStroke = createSectionButton("Premium", 4, not hasPremium())
+    local howToBtn, howToStroke = createSectionButton("HowTo", 5, false, "How to\nUse")
 
     local contentFrame = Instance.new("Frame")
     contentFrame.Name = "ContentFrame"
@@ -1278,6 +1601,273 @@ local function createUI()
     queueListLayout.SortOrder = Enum.SortOrder.LayoutOrder
     queueListLayout.Padding = UDim.new(0, 6)
     queueListLayout.Parent = queueScrollFrame
+
+    local hotbarFrame = Instance.new("ScrollingFrame")
+    hotbarFrame.Name = "HotBar"
+    hotbarFrame.Size = UDim2.new(1, 0, 1, 0)
+    hotbarFrame.BackgroundTransparency = 1
+    hotbarFrame.BorderSizePixel = 0
+    hotbarFrame.ScrollBarThickness = 6
+    hotbarFrame.ScrollBarImageColor3 = Color3.fromRGB(79, 179, 235)
+    hotbarFrame.Visible = false
+    hotbarFrame.Parent = contentFrame
+
+    local hotbarList = Instance.new("UIListLayout")
+    hotbarList.SortOrder = Enum.SortOrder.LayoutOrder
+    hotbarList.Padding = UDim.new(0, 10)
+    hotbarList.Parent = hotbarFrame
+
+    local hotbarTitle = Instance.new("TextLabel")
+    hotbarTitle.Size = UDim2.new(1, -10, 0, 25)
+    hotbarTitle.BackgroundTransparency = 1
+    hotbarTitle.Font = Enum.Font.FredokaOne
+    hotbarTitle.Text = "HotBar Number Settings"
+    hotbarTitle.TextColor3 = Color3.fromRGB(79, 179, 235)
+    hotbarTitle.TextSize = 15
+    hotbarTitle.TextXAlignment = Enum.TextXAlignment.Left
+    hotbarTitle.Parent = hotbarFrame
+
+    local hotbarDesc = Instance.new("TextLabel")
+    hotbarDesc.Size = UDim2.new(1, -10, 0, 40)
+    hotbarDesc.BackgroundTransparency = 1
+    hotbarDesc.Font = Enum.Font.FredokaOne
+    hotbarDesc.Text = "Select which keyboard number (1-9) to use for each task. Make sure not to assign the same number to multiple tasks."
+    hotbarDesc.TextColor3 = Color3.fromRGB(100, 100, 100)
+    hotbarDesc.TextSize = 10
+    hotbarDesc.TextXAlignment = Enum.TextXAlignment.Left
+    hotbarDesc.TextYAlignment = Enum.TextYAlignment.Top
+    hotbarDesc.TextWrapped = true
+    hotbarDesc.Parent = hotbarFrame
+
+    local function createHotbarSelector(name, settingKey, description)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, -10, 0, 70)
+        frame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+        frame.BorderSizePixel = 0
+        frame.Parent = hotbarFrame
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = frame
+        
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -140, 0, 20)
+        label.Position = UDim2.new(0, 10, 0, 5)
+        label.BackgroundTransparency = 1
+        label.Font = Enum.Font.FredokaOne
+        label.Text = name
+        label.TextColor3 = Color3.fromRGB(50, 50, 50)
+        label.TextSize = 14
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+        
+        local desc = Instance.new("TextLabel")
+        desc.Size = UDim2.new(1, -140, 0, 40)
+        desc.Position = UDim2.new(0, 10, 0, 25)
+        desc.BackgroundTransparency = 1
+        desc.Font = Enum.Font.FredokaOne
+        desc.Text = description
+        desc.TextColor3 = Color3.fromRGB(150, 150, 150)
+        desc.TextSize = 9
+        desc.TextXAlignment = Enum.TextXAlignment.Left
+        desc.TextYAlignment = Enum.TextYAlignment.Top
+        desc.TextWrapped = true
+        desc.Parent = frame
+        
+        local numberFrame = Instance.new("Frame")
+        numberFrame.Size = UDim2.new(0, 120, 0, 40)
+        numberFrame.Position = UDim2.new(1, -130, 0.5, -20)
+        numberFrame.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+        numberFrame.BorderSizePixel = 0
+        numberFrame.Parent = frame
+        
+        local numCorner = Instance.new("UICorner")
+        numCorner.CornerRadius = UDim.new(0, 8)
+        numCorner.Parent = numberFrame
+        
+        local leftBtn = Instance.new("TextButton")
+        leftBtn.Size = UDim2.new(0, 30, 1, 0)
+        leftBtn.Position = UDim2.new(0, 0, 0, 0)
+        leftBtn.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+        leftBtn.BorderSizePixel = 0
+        leftBtn.Text = "<"
+        leftBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        leftBtn.TextSize = 18
+        leftBtn.Font = Enum.Font.FredokaOne
+        leftBtn.AutoButtonColor = false
+        leftBtn.Parent = numberFrame
+        
+        local leftCorner = Instance.new("UICorner")
+        leftCorner.CornerRadius = UDim.new(0, 8)
+        leftCorner.Parent = leftBtn
+        
+        local rightBtn = Instance.new("TextButton")
+        rightBtn.Size = UDim2.new(0, 30, 1, 0)
+        rightBtn.Position = UDim2.new(1, -30, 0, 0)
+        rightBtn.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+        rightBtn.BorderSizePixel = 0
+        rightBtn.Text = ">"
+        rightBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        rightBtn.TextSize = 18
+        rightBtn.Font = Enum.Font.FredokaOne
+        rightBtn.AutoButtonColor = false
+        rightBtn.Parent = numberFrame
+        
+        local rightCorner = Instance.new("UICorner")
+        rightCorner.CornerRadius = UDim.new(0, 8)
+        rightCorner.Parent = rightBtn
+        
+        local numberLabel = Instance.new("TextLabel")
+        numberLabel.Size = UDim2.new(0, 60, 1, 0)
+        numberLabel.Position = UDim2.new(0, 30, 0, 0)
+        numberLabel.BackgroundTransparency = 1
+        numberLabel.Font = Enum.Font.FredokaOne
+        numberLabel.Text = tostring(hotbarSettings[settingKey])
+        numberLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
+        numberLabel.TextSize = 20
+        numberLabel.Parent = numberFrame
+        
+        local function updateNumber(change)
+            local current = hotbarSettings[settingKey]
+            local new = current + change
+            
+            if new < 1 then new = 9 end
+            if new > 9 then new = 1 end
+            
+            local conflicts = false
+            for key, value in pairs(hotbarSettings) do
+                if key ~= settingKey and key ~= "maxRetries" and value == new then
+                    conflicts = true
+                    break
+                end
+            end
+            
+            if conflicts then
+                showNotification("Number " .. new .. " is already in use!")
+                return
+            end
+            
+            hotbarSettings[settingKey] = new
+            numberLabel.Text = tostring(new)
+            playSound(6895079853, 0.5)
+        end
+        
+        leftBtn.MouseButton1Click:Connect(function()
+            updateNumber(-1)
+        end)
+        
+        rightBtn.MouseButton1Click:Connect(function()
+            updateNumber(1)
+        end)
+        
+        leftBtn.MouseEnter:Connect(function()
+            playSound(140387697208266, 2.5)
+        end)
+        
+        rightBtn.MouseEnter:Connect(function()
+            playSound(140387697208266, 2.5)
+        end)
+    end
+
+    createHotbarSelector("Stroller HotBar Number", "ride", "This is the Stroller Number that the AI will auto Equip when needed.")
+    createHotbarSelector("Throwable Plushe Hotbar Number", "throw", "This is the Throwable Plushie on the hotbar, which ever number u have put it to.")
+
+    local retryTitle = Instance.new("TextLabel")
+    retryTitle.Size = UDim2.new(1, -10, 0, 30)
+    retryTitle.BackgroundTransparency = 1
+    retryTitle.Font = Enum.Font.FredokaOne
+    retryTitle.Text = "Max Retry Settings"
+    retryTitle.TextColor3 = Color3.fromRGB(79, 179, 235)
+    retryTitle.TextSize = 15
+    retryTitle.TextXAlignment = Enum.TextXAlignment.Left
+    retryTitle.Parent = hotbarFrame
+
+    local retryDesc = Instance.new("TextLabel")
+    retryDesc.Size = UDim2.new(1, -10, 0, 30)
+    retryDesc.BackgroundTransparency = 1
+    retryDesc.Font = Enum.Font.FredokaOne
+    retryDesc.Text = "Set how many times the script should retry difficult tasks before moving on"
+    retryDesc.TextColor3 = Color3.fromRGB(100, 100, 100)
+    retryDesc.TextSize = 10
+    retryDesc.TextXAlignment = Enum.TextXAlignment.Left
+    retryDesc.TextYAlignment = Enum.TextYAlignment.Top
+    retryDesc.TextWrapped = true
+    retryDesc.Parent = hotbarFrame
+
+    local retryFrame = Instance.new("Frame")
+    retryFrame.Size = UDim2.new(1, -10, 0, 60)
+    retryFrame.BackgroundColor3 = Color3.fromRGB(248, 248, 248)
+    retryFrame.BorderSizePixel = 0
+    retryFrame.Parent = hotbarFrame
+    
+    local retryCorner = Instance.new("UICorner")
+    retryCorner.CornerRadius = UDim.new(0, 10)
+    retryCorner.Parent = retryFrame
+    
+    local retryLabel = Instance.new("TextLabel")
+    retryLabel.Size = UDim2.new(1, -20, 0, 20)
+    retryLabel.Position = UDim2.new(0, 10, 0, 5)
+    retryLabel.BackgroundTransparency = 1
+    retryLabel.Font = Enum.Font.FredokaOne
+    retryLabel.Text = "Max Retries: 10"
+    retryLabel.TextColor3 = Color3.fromRGB(50, 50, 50)
+    retryLabel.TextSize = 13
+    retryLabel.TextXAlignment = Enum.TextXAlignment.Left
+    retryLabel.Parent = retryFrame
+    
+    local retrySlider = Instance.new("TextButton")
+    retrySlider.Size = UDim2.new(1, -20, 0, 25)
+    retrySlider.Position = UDim2.new(0, 10, 0, 30)
+    retrySlider.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+    retrySlider.BorderSizePixel = 0
+    retrySlider.Text = ""
+    retrySlider.AutoButtonColor = false
+    retrySlider.Parent = retryFrame
+    
+    local retrySliderCorner = Instance.new("UICorner")
+    retrySliderCorner.CornerRadius = UDim.new(1, 0)
+    retrySliderCorner.Parent = retrySlider
+    
+    local retryKnob = Instance.new("Frame")
+    retryKnob.Size = UDim2.new(0, 22, 0, 22)
+    retryKnob.Position = UDim2.new(0, 0, 0.5, -11)
+    retryKnob.BackgroundColor3 = Color3.fromRGB(79, 179, 235)
+    retryKnob.BorderSizePixel = 0
+    retryKnob.Parent = retrySlider
+    
+    local retryKnobCorner = Instance.new("UICorner")
+    retryKnobCorner.CornerRadius = UDim.new(1, 0)
+    retryKnobCorner.Parent = retryKnob
+    
+    local function updateMaxRetries(input)
+        local pos = math.clamp((input.Position.X - retrySlider.AbsolutePosition.X) / retrySlider.AbsoluteSize.X, 0, 1)
+        local value = math.floor(10 + (pos * 15))
+        hotbarSettings.maxRetries = value
+        retryLabel.Text = "Max Retries: " .. value
+        retryKnob.Position = UDim2.new(pos, 0, 0.5, -11)
+    end
+    
+    retrySlider.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            updateMaxRetries(input)
+            local connection
+            connection = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    connection:Disconnect()
+                end
+            end)
+        end
+    end)
+    
+    retrySlider.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+                updateMaxRetries(input)
+            end
+        end
+    end)
+
+    hotbarFrame.CanvasSize = UDim2.new(0, 0, 0, 500)
 
     local premiumFrame = Instance.new("ScrollingFrame")
     premiumFrame.Name = "Premium"
@@ -1629,16 +2219,15 @@ local function createUI()
     howToList.Padding = UDim.new(0, 12)
     howToList.Parent = howToFrame
 
-local importantTitle = Instance.new("TextLabel")
-importantTitle.Size = UDim2.new(1, -10, 0, 30)
-importantTitle.BackgroundTransparency = 1
-importantTitle.Font = Enum.Font.FredokaOne
-importantTitle.Text = "[IMPORTANT]"
-importantTitle.TextSize = 18
-importantTitle.TextXAlignment = Enum.TextXAlignment.Left
-importantTitle.TextColor3 = Color3.new(1, 1, 1)
-importantTitle.Parent = howToFrame
-
+    local importantTitle = Instance.new("TextLabel")
+    importantTitle.Size = UDim2.new(1, -10, 0, 30)
+    importantTitle.BackgroundTransparency = 1
+    importantTitle.Font = Enum.Font.FredokaOne
+    importantTitle.Text = "[IMPORTANT]"
+    importantTitle.TextSize = 18
+    importantTitle.TextXAlignment = Enum.TextXAlignment.Left
+    importantTitle.TextColor3 = Color3.new(1, 1, 1)
+    importantTitle.Parent = howToFrame
     
     local importantGradient = Instance.new("UIGradient")
     importantGradient.Color = ColorSequence.new{
@@ -1659,10 +2248,10 @@ importantTitle.Parent = howToFrame
     end)
 
     local importantText = Instance.new("TextLabel")
-    importantText.Size = UDim2.new(1, -10, 0, 90)
+    importantText.Size = UDim2.new(1, -10, 0, 120)
     importantText.BackgroundTransparency = 1
     importantText.Font = Enum.Font.FredokaOne
-    importantText.Text = "For this to work at its best, on the hotbar equip a stroller, make sure the stroller will be placed at number 2. Then you can stop editing the hotbar.\n\nMake sure theres none close to you, Farm alone since it works only when youre solo."
+    importantText.Text = "For this to work at its best, equip items on your hotbar:\n• Stroller at slot 2 (default)\n• Throwable plush at slot 3 (default)\n\nYou can change these in HotBar Settings.\n\nMake sure there's no one close to you. Farm alone since it works best when you're solo."
     importantText.TextColor3 = Color3.fromRGB(0, 0, 0)
     importantText.TextSize = 12
     importantText.TextXAlignment = Enum.TextXAlignment.Left
@@ -1684,7 +2273,7 @@ importantTitle.Parent = howToFrame
     guideText.Size = UDim2.new(1, -10, 0, 80)
     guideText.BackgroundTransparency = 1
     guideText.Font = Enum.Font.FredokaOne
-    guideText.Text = "You will need a Basic Crib (Sleeping pot for babies $0), Basic Water (Basic bowl for pets $0), the basic Food bowl ($0), Basic Toilet ($0), Cheap Bath tub, Piano and thats it!"
+    guideText.Text = "You will need: Basic Crib ($0), Basic Water Bowl ($0), Basic Food Bowl ($0), Basic Toilet ($0), Cheap Bath tub, Piano, and a throwable plush toy!"
     guideText.TextColor3 = Color3.fromRGB(0, 0, 0)
     guideText.TextSize = 12
     guideText.TextXAlignment = Enum.TextXAlignment.Left
@@ -1692,16 +2281,18 @@ importantTitle.Parent = howToFrame
     guideText.TextWrapped = true
     guideText.Parent = howToFrame
 
-    howToFrame.CanvasSize = UDim2.new(0, 0, 0, 300)
+    howToFrame.CanvasSize = UDim2.new(0, 0, 0, 350)
 
     local function switchSection(section, button, stroke)
         taskManagerFrame.Visible = false
         queueFrame.Visible = false
+        hotbarFrame.Visible = false
         premiumFrame.Visible = false
         howToFrame.Visible = false
         
         taskStroke.Thickness = 0
         queueStroke.Thickness = 0
+        hotbarStroke.Thickness = 0
         premiumStroke.Thickness = 0
         howToStroke.Thickness = 0
         
@@ -1709,6 +2300,8 @@ importantTitle.Parent = howToFrame
             taskManagerFrame.Visible = true
         elseif section == "Queue" then
             queueFrame.Visible = true
+        elseif section == "HotBar" then
+            hotbarFrame.Visible = true
         elseif section == "Premium" then
             premiumFrame.Visible = true
         elseif section == "HowTo" then
@@ -1735,6 +2328,15 @@ importantTitle.Parent = howToFrame
         createSparkleExplosion(screenGui, UDim2.new(0, mousePos.X, 0, mousePos.Y - 36))
         
         switchSection("TaskManager", taskBtn, taskStroke)
+    end)
+
+    hotbarBtn.MouseButton1Click:Connect(function()
+        playSound(6895079853, 0.5)
+        
+        local mousePos = UserInputService:GetMouseLocation()
+        createSparkleExplosion(screenGui, UDim2.new(0, mousePos.X, 0, mousePos.Y - 36))
+        
+        switchSection("HotBar", hotbarBtn, hotbarStroke)
     end)
 
     premiumBtn.MouseButton1Click:Connect(function()
@@ -1775,7 +2377,7 @@ importantTitle.Parent = howToFrame
     makeDraggable(mainFrame, dragHint)
 
     task.spawn(function()
-        while task.wait(0.3) do
+        while task.wait(0.2) do
             local nextTask = getNextTask()
             
             if isProcessing and currentTask then
@@ -1913,6 +2515,9 @@ player.CharacterAdded:Connect(function(newChar)
     currentTask = nil
     taskQueue = {}
     queueOrder = {}
+    taskRetryCount = {}
+    taskFailCount = {}
+    deprioritizedTasks = {}
 end)
 
 showStartupNotification("On pet farm, make sure you have pet follows off", 2)
