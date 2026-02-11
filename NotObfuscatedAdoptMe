@@ -21,6 +21,9 @@ local autoApplyInventory = false
 local taskRetryCount = {}
 local taskFailCount = {}
 local deprioritizedTasks = {}
+local lastTaskDetectionTime = tick()
+local lastSuccessfulQueueUpdate = tick()
+local systemStartTime = tick()
 
 local PREMIUM_SHIRT_ID = 132268448125497
 
@@ -464,7 +467,16 @@ local function getProgressGradient(taskId)
 end
 
 local function taskStillExists(taskId)
-    return getProgressGradient(taskId) ~= nil
+    for attempt = 1, 3 do
+        local gradient = getProgressGradient(taskId)
+        if gradient ~= nil then
+            return true
+        end
+        if attempt < 3 then
+            task.wait(0.3)
+        end
+    end
+    return false
 end
 
 local function isProgressBeingMade(taskId, checkDuration)
@@ -484,19 +496,26 @@ end
 
 local function getAllCurrentTasks()
     local tasks = {}
-    local maxRetries = 3
-    local retryCount = 0
     
-    while retryCount < maxRetries do
+    for retry = 1, 5 do
         local success = pcall(function()
             local ailmentsApp = playerGui:FindFirstChild("AilmentsMonitorApp")
-            if not ailmentsApp then return end
+            if not ailmentsApp then 
+                task.wait(0.5)
+                return 
+            end
             
             local main = ailmentsApp:FindFirstChild("Main")
-            if not main then return end
+            if not main then 
+                task.wait(0.3)
+                return 
+            end
             
             local ailments = main:FindFirstChild("Ailments")
-            if not ailments then return end
+            if not ailments then 
+                task.wait(0.3)
+                return 
+            end
             
             for _, container in pairs(ailments:GetChildren()) do
                 if container.Name == "AilmentContainer" and container:IsA("Frame") then
@@ -518,18 +537,36 @@ local function getAllCurrentTasks()
         end)
         
         if success and #tasks > 0 then
+            lastSuccessfulQueueUpdate = tick()
             break
         end
         
-        retryCount = retryCount + 1
-        task.wait(0.2)
+        if retry < 5 then
+            task.wait(0.5)
+        end
     end
     
     return tasks
 end
 
+local function resetSystemState()
+    isProcessing = false
+    currentTask = nil
+    taskQueue = {}
+    queueOrder = {}
+    taskRetryCount = {}
+    taskFailCount = {}
+    deprioritizedTasks = {}
+    lastTaskDetectionTime = tick()
+    lastSuccessfulQueueUpdate = tick()
+end
+
 local function updateTaskQueue()
     local currentTasks = getAllCurrentTasks()
+    
+    if #currentTasks > 0 then
+        lastTaskDetectionTime = tick()
+    end
     
     for _, taskId in pairs(currentTasks) do
         if not taskQueue[taskId] then
@@ -954,6 +991,24 @@ end
 
 task.spawn(function()
     while task.wait(1) do
+        updateTaskQueue()
+    end
+end)
+
+task.spawn(function()
+    while task.wait(30) do
+        if tick() - lastSuccessfulQueueUpdate > 120 then
+            resetSystemState()
+            task.wait(2)
+            updateTaskQueue()
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(600) do
+        resetSystemState()
+        task.wait(2)
         updateTaskQueue()
     end
 end)
@@ -2511,13 +2566,7 @@ end
 
 player.CharacterAdded:Connect(function(newChar)
     task.wait(1)
-    isProcessing = false
-    currentTask = nil
-    taskQueue = {}
-    queueOrder = {}
-    taskRetryCount = {}
-    taskFailCount = {}
-    deprioritizedTasks = {}
+    resetSystemState()
 end)
 
 showStartupNotification("On pet farm, make sure you have pet follows off", 2)
