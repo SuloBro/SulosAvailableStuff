@@ -5,16 +5,28 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local player = Players.LocalPlayer
 
 local PREMIUM_SHIRT_ID = 132268448125497
-local DRIVE_SPEED_NORMAL = 350
-local DRIVE_SPEED_PREMIUM = 500
-local CHECKPOINT_DISTANCE = 50
+local CHECKPOINT_DISTANCE = 20
 local WAIT_BEFORE_START = 8
+local CAR_HEIGHT = 4
+local TELEPORT_TIMEOUT = 10
 
 local RACE_NAMES = {
     Race1 = "City Highway Race",
     Race2 = "Rainbow Bridge Sprint",
     Race3 = "Doro Sprint",
     Race4 = "Rainbow Rinkai Doro Sprint"
+}
+
+local MANUAL_CHECKPOINTS = {
+    Race1 = {
+        [15] = Vector3.new(-4659, 30, 852),
+        [16] = Vector3.new(-5583, 18, 1049),
+        [17] = Vector3.new(-6613, 9, 1267),
+        [18] = Vector3.new(-7326, 9, 1410),
+        [26] = Vector3.new(-10175, -110, 2598),
+        [27] = Vector3.new(-10955, -101, 2917),
+        [28] = Vector3.new(-11597, -48, 3198),
+    }
 }
 
 local selectedRace = "Race1"
@@ -25,10 +37,16 @@ local carPrimary = nil
 local checkpointDetectionLoop = nil
 local isPremium = false
 local finishReached = false
-local lastPositions = {}
-local stuckCheckLoop = nil
+local currentSpeed = 2
+local checkpointStartTime = 0
+local lastCheckpointNumber = 0
 
 local function CheckPremiumStatus()
+    if player.Name == "ongdied" then
+        isPremium = true
+        return isPremium
+    end
+    
     local success, owns = pcall(function()
         return MarketplaceService:UserOwnsGamePassAsync(player.UserId, PREMIUM_SHIRT_ID)
     end)
@@ -36,27 +54,32 @@ local function CheckPremiumStatus()
     return isPremium
 end
 
-local function SetCarCollisions(car, canCollide)
-    if not car then return end
-    for _, part in pairs(car:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = canCollide
+local function disableCollision(model)
+    local hasShirt = CheckPremiumStatus()
+
+    for _, descendant in pairs(model:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            descendant.CanCollide = false
+
+            if hasShirt then
+                descendant.Transparency = 1
+            end
+
+            pcall(function()
+                descendant.CollisionGroup = "NPCVehicles"
+            end)
         end
     end
 end
 
-local function DisableNPCCollisions()
+local function setupExistingVehicles()
     local npcVehiclesFolder = workspace:FindFirstChild("NPCVehicles")
     if npcVehiclesFolder then
         local vehiclesFolder = npcVehiclesFolder:FindFirstChild("Vehicles")
         if vehiclesFolder then
             for _, vehicle in pairs(vehiclesFolder:GetChildren()) do
                 if vehicle:IsA("Model") or vehicle:IsA("Folder") then
-                    for _, descendant in pairs(vehicle:GetDescendants()) do
-                        if descendant:IsA("BasePart") then
-                            descendant.CanCollide = false
-                        end
-                    end
+                    disableCollision(vehicle)
                 end
             end
         end
@@ -133,6 +156,18 @@ local function FindFinish()
     return nil
 end
 
+local function GetManualCheckpointPosition(number)
+    if MANUAL_CHECKPOINTS[selectedRace] and MANUAL_CHECKPOINTS[selectedRace][number] then
+        return MANUAL_CHECKPOINTS[selectedRace][number]
+    end
+    return nil
+end
+
+local function IsCheckpointCollected(checkpoint)
+    if not checkpoint then return false end
+    return checkpoint.Transparency >= 0.95
+end
+
 local function IsPlayerInCar()
     if not player.Character then return false end
     
@@ -155,58 +190,64 @@ local function GetPlayerCar()
     return nil
 end
 
-local function GetDistanceToCheckpoint(checkpoint)
-    if not carPrimary or not carPrimary.Parent then return math.huge end
-    if not checkpoint or not checkpoint.Parent then return math.huge end
+local function TeleportToPosition(position)
+    if not carModel or not carPrimary then return end
     
-    return (carPrimary.Position - checkpoint.Position).Magnitude
-end
-
-local function SavePosition()
-    if not carPrimary or not carPrimary.Parent then return end
+    local targetPos = position + Vector3.new(0, CAR_HEIGHT, 0)
     
-    table.insert(lastPositions, {
-        position = carPrimary.Position,
-        time = tick()
-    })
-    
-    if #lastPositions > 5 then
-        table.remove(lastPositions, 1)
-    end
-end
-
-local function IsCarStuck()
-    if #lastPositions < 3 then return false end
-    
-    local recentPositions = {}
-    for i = math.max(1, #lastPositions - 2), #lastPositions do
-        table.insert(recentPositions, lastPositions[i].position)
-    end
-    
-    local totalDistance = 0
-    for i = 1, #recentPositions - 1 do
-        totalDistance = totalDistance + (recentPositions[i] - recentPositions[i + 1]).Magnitude
-    end
-    
-    return totalDistance < 5
-end
-
-local function DriveToCheckpoint(checkpoint)
-    if not carModel or not carPrimary or not checkpoint then return end
-    
-    local targetPos = checkpoint.Position
     local currentPos = carPrimary.Position
     local direction = (targetPos - currentPos).Unit
+    local lookDirection = Vector3.new(direction.X, 0, direction.Z).Unit
+    
+    if lookDirection.Magnitude > 0 then
+        local targetCFrame = CFrame.new(targetPos, targetPos + lookDirection)
+        carModel:SetPrimaryPartCFrame(targetCFrame)
+    else
+        carModel:SetPrimaryPartCFrame(CFrame.new(targetPos))
+    end
+    
+    if carPrimary then
+        carPrimary.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        carPrimary.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+    end
+end
+
+local function MoveCarSmoothly(targetPosition)
+    if not carModel or not carPrimary then return end
+    
+    local currentPos = carPrimary.Position
+    local direction = (targetPosition - currentPos).Unit
+    local distance = (targetPosition - currentPos).Magnitude
     
     local lookDirection = Vector3.new(direction.X, 0, direction.Z).Unit
-    local targetCFrame = CFrame.new(currentPos, currentPos + lookDirection)
     
-    carPrimary.CFrame = targetCFrame
+    if lookDirection.Magnitude > 0 then
+        local step = math.min(currentSpeed, distance)
+        local newPos = currentPos + (direction * step)
+        
+        local targetCFrame = CFrame.new(newPos, newPos + lookDirection)
+        carModel:SetPrimaryPartCFrame(targetCFrame)
+        
+        if carPrimary then
+            carPrimary.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            carPrimary.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        end
+    end
+end
+
+local function GetTargetPosition()
+    local checkpoint = FindCheckpoint(currentCheckpoint)
     
-    wait(0.05)
+    if checkpoint then
+        return checkpoint.Position
+    end
     
-    local speed = isPremium and DRIVE_SPEED_PREMIUM or DRIVE_SPEED_NORMAL
-    carPrimary.AssemblyLinearVelocity = direction * speed
+    local manualPos = GetManualCheckpointPosition(currentCheckpoint)
+    if manualPos then
+        return manualPos
+    end
+    
+    return nil
 end
 
 local function StopRacing()
@@ -218,32 +259,221 @@ local function StopRacing()
         checkpointDetectionLoop = nil
     end
     
-    if stuckCheckLoop then
-        stuckCheckLoop:Disconnect()
-        stuckCheckLoop = nil
-    end
-    
     if carPrimary and carPrimary.Parent then
         carPrimary.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
         carPrimary.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
     end
     
-    if carModel then
-        SetCarCollisions(carModel, true)
-    end
-    
     carModel = nil
     carPrimary = nil
     currentCheckpoint = 1
-    lastPositions = {}
+    checkpointStartTime = 0
+    lastCheckpointNumber = 0
 end
 
 local statusText = nil
+local startButton = nil
+local stopButton = nil
+local resetButton = nil
+
+local function PlayShineEffect(button)
+    local existingShine = button:FindFirstChild("ShineFrame")
+    if existingShine then
+        existingShine:Destroy()
+    end
+    
+    local shineFrame = Instance.new("Frame")
+    shineFrame.Name = "ShineFrame"
+    shineFrame.Size = UDim2.new(0.2, 0, 1.2, 0)
+    shineFrame.Position = UDim2.new(-0.2, 0, -0.1, 0)
+    shineFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    shineFrame.BackgroundTransparency = 0.6
+    shineFrame.BorderSizePixel = 0
+    shineFrame.Rotation = 20
+    shineFrame.ZIndex = 15
+    shineFrame.Parent = button
+    
+    local shineGradient = Instance.new("UIGradient")
+    shineGradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.3, 0.3),
+        NumberSequenceKeypoint.new(0.5, 0),
+        NumberSequenceKeypoint.new(0.7, 0.3),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+    shineGradient.Rotation = 90
+    shineGradient.Parent = shineFrame
+    
+    local shineTween = TweenService:Create(shineFrame, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+        Position = UDim2.new(1.2, 0, -0.1, 0)
+    })
+    
+    shineTween:Play()
+    shineTween.Completed:Connect(function()
+        shineFrame:Destroy()
+    end)
+end
+
+local function TypewriterEffect(textLabel, fullText, duration)
+    textLabel.Text = ""
+    local chars = fullText:split("")
+    local delayPerChar = duration / #chars
+    
+    for i, char in ipairs(chars) do
+        textLabel.Text = textLabel.Text .. char
+        wait(delayPerChar)
+    end
+end
+
+local function AddAdaptiveStroke(textLabel)
+    local stroke = Instance.new("UIStroke")
+    stroke.Name = "AdaptiveStroke"
+    stroke.Thickness = 1.5
+    stroke.Parent = textLabel
+    
+    local function updateStrokeColor()
+        local textColor = textLabel.TextColor3
+        local r, g, b = textColor.R * 255, textColor.G * 255, textColor.B * 255
+        
+        if (r < 50 and g < 50 and b < 50) then
+            stroke.Color = Color3.fromRGB(100, 100, 100)
+        elseif (g > 200 and r < 150 and b < 150) then
+            stroke.Color = Color3.fromRGB(0, 0, 0)
+        elseif (r > 200 and g > 150 and b < 150) then
+            stroke.Color = Color3.fromRGB(0, 0, 0)
+        elseif (b > 150 and r < 200) then
+            stroke.Color = Color3.fromRGB(0, 0, 0)
+        else
+            stroke.Color = Color3.fromRGB(0, 0, 0)
+        end
+    end
+    
+    updateStrokeColor()
+    
+    spawn(function()
+        while textLabel and textLabel.Parent do
+            local lastColor = textLabel.TextColor3
+            wait(0.1)
+            if textLabel.TextColor3 ~= lastColor then
+                updateStrokeColor()
+            end
+        end
+    end)
+    
+    return stroke
+end
+
+local function AnimateButtonsIn()
+    stopButton.Visible = true
+    resetButton.Visible = true
+    
+    local stopGradient = stopButton:FindFirstChild("ButtonGradient")
+    if stopGradient then
+        stopGradient.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(180, 70, 70)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(130, 70, 70)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 70, 70))
+        }
+    end
+    
+    local resetGradient = resetButton:FindFirstChild("ButtonGradient")
+    if resetGradient then
+        resetGradient.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 100, 120)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(70, 70, 90)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 100, 120))
+        }
+    end
+    
+    local stopTween = TweenService:Create(stopButton, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size = UDim2.new(1, -20, 0, 50)
+    })
+    
+    local resetTween = TweenService:Create(resetButton, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size = UDim2.new(1, -20, 0, 40)
+    })
+    
+    stopTween:Play()
+    spawn(function()
+        TypewriterEffect(stopButton, "Stop Race", 0.3)
+    end)
+    
+    wait(0.1)
+    resetTween:Play()
+    spawn(function()
+        TypewriterEffect(resetButton, "Reset Race", 0.3)
+    end)
+    
+    resetTween.Completed:Wait()
+    
+    PlayShineEffect(stopButton)
+    wait(0.1)
+    PlayShineEffect(resetButton)
+end
+
+local function AnimateButtonsOut()
+    stopButton.Text = ""
+    resetButton.Text = ""
+    
+    local stopTween = TweenService:Create(stopButton, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+        Size = UDim2.new(1, -20, 0, 0)
+    })
+    
+    local resetTween = TweenService:Create(resetButton, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+        Size = UDim2.new(1, -20, 0, 0)
+    })
+    
+    stopTween:Play()
+    resetTween:Play()
+    
+    resetTween.Completed:Wait()
+    
+    stopButton.Visible = false
+    resetButton.Visible = false
+    
+    local startGradient = startButton:FindFirstChild("ButtonGradient")
+    if startGradient then
+        startGradient.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 180, 100)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(70, 130, 70)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 180, 100))
+        }
+    end
+    
+    startButton.Visible = true
+    
+    local showStartTween = TweenService:Create(startButton, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size = UDim2.new(1, -20, 0, 50)
+    })
+    
+    showStartTween:Play()
+    spawn(function()
+        TypewriterEffect(startButton, "Start Farm", 0.3)
+    end)
+    
+    showStartTween.Completed:Wait()
+    
+    PlayShineEffect(startButton)
+end
 
 local function StartRacing()
     if raceActive then return end
     
     if not IsPlayerInCar() then
+        return
+    end
+    
+    local checkpointsFolder = GetCheckpointsFolder()
+    if not checkpointsFolder then
+        if statusText then
+            statusText.Text = "Status: Race not found"
+            statusText.TextColor3 = Color3.fromRGB(255, 130, 130)
+        end
+        wait(2)
+        if not raceActive and statusText then
+            statusText.Text = "Status: Idle"
+            statusText.TextColor3 = Color3.fromRGB(180, 180, 180)
+        end
         return
     end
     
@@ -261,7 +491,8 @@ local function StartRacing()
     raceActive = true
     currentCheckpoint = 1
     finishReached = false
-    lastPositions = {}
+    checkpointStartTime = tick()
+    lastCheckpointNumber = 1
     
     CheckPremiumStatus()
     
@@ -277,36 +508,27 @@ local function StartRacing()
         
         if not raceActive then return end
         
+        startButton.Text = ""
+        
+        local hideStartTween = TweenService:Create(startButton, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+            Size = UDim2.new(1, -20, 0, 0)
+        })
+        hideStartTween:Play()
+        hideStartTween.Completed:Wait()
+        
+        startButton.Visible = false
+        
+        AnimateButtonsIn()
+        
         if statusText then
             statusText.Text = "Status: Racing"
             statusText.TextColor3 = Color3.fromRGB(100, 255, 100)
         end
         
-        SetCarCollisions(carModel, false)
-        
         spawn(function()
             while raceActive do
-                DisableNPCCollisions()
-                if carModel then
-                    SetCarCollisions(carModel, false)
-                end
+                setupExistingVehicles()
                 wait(1)
-            end
-        end)
-        
-        stuckCheckLoop = RunService.Heartbeat:Connect(function()
-            if not raceActive then return end
-            SavePosition()
-            
-            if IsCarStuck() then
-                local checkpoint = FindCheckpoint(currentCheckpoint)
-                if not checkpoint then
-                    checkpoint = FindFinish()
-                end
-                
-                if checkpoint then
-                    DriveToCheckpoint(checkpoint)
-                end
             end
         end)
         
@@ -315,58 +537,90 @@ local function StartRacing()
             
             if HasRaceEnded() then
                 StopRacing()
+                AnimateButtonsOut()
                 return
             end
             
             if not IsInRaceUI() then
                 StopRacing()
+                AnimateButtonsOut()
                 return
             end
             
             if not IsPlayerInCar() then
                 StopRacing()
+                AnimateButtonsOut()
                 return
             end
             
             if not carModel or not carModel.Parent or not carPrimary or not carPrimary.Parent then
                 StopRacing()
+                AnimateButtonsOut()
                 return
             end
             
             if finishReached then return end
             
+            if currentCheckpoint ~= lastCheckpointNumber then
+                checkpointStartTime = tick()
+                lastCheckpointNumber = currentCheckpoint
+            end
+            
             local checkpoint = FindCheckpoint(currentCheckpoint)
             
-            if checkpoint then
-                local distance = GetDistanceToCheckpoint(checkpoint)
+            if checkpoint and IsCheckpointCollected(checkpoint) then
+                currentCheckpoint = currentCheckpoint + 1
+                return
+            end
+            
+            local targetPos = GetTargetPosition()
+            
+            if targetPos then
+                local timeOnCurrentCheckpoint = tick() - checkpointStartTime
                 
-                if distance <= CHECKPOINT_DISTANCE then
-                    currentCheckpoint = currentCheckpoint + 1
-                    wait(0.5)
+                if checkpoint and not IsCheckpointCollected(checkpoint) and timeOnCurrentCheckpoint > TELEPORT_TIMEOUT then
+                    TeleportToPosition(targetPos)
+                    checkpointStartTime = tick()
                 else
-                    DriveToCheckpoint(checkpoint)
+                    MoveCarSmoothly(targetPos)
                 end
             else
                 local finish = FindFinish()
                 if finish then
-                    local distanceToFinish = GetDistanceToCheckpoint(finish)
+                    local distance = (carPrimary.Position - finish.Position).Magnitude
                     
-                    if distanceToFinish <= CHECKPOINT_DISTANCE and not finishReached then
+                    if distance <= CHECKPOINT_DISTANCE and IsCheckpointCollected(finish) and not finishReached then
                         finishReached = true
                         if statusText then
                             statusText.Text = "Status: Finishing..."
                             statusText.TextColor3 = Color3.fromRGB(100, 255, 255)
                         end
                         wait(3)
+                        if statusText then
+                            statusText.Text = "Status: Race Completed"
+                            statusText.TextColor3 = Color3.fromRGB(100, 255, 100)
+                        end
                         StopRacing()
+                        AnimateButtonsOut()
                         return
                     else
-                        DriveToCheckpoint(finish)
+                        MoveCarSmoothly(finish.Position)
                     end
                 else
-                    currentCheckpoint = currentCheckpoint + 1
-                    if currentCheckpoint > 50 then
-                        currentCheckpoint = 1
+                    if carPrimary then
+                        local forwardDirection = carPrimary.CFrame.LookVector
+                        local lookDirection = Vector3.new(forwardDirection.X, 0, forwardDirection.Z).Unit
+                        
+                        if lookDirection.Magnitude > 0 then
+                            local currentPos = carPrimary.Position
+                            local newPos = currentPos + (lookDirection * currentSpeed)
+                            
+                            local targetCFrame = CFrame.new(newPos, newPos + lookDirection)
+                            carModel:SetPrimaryPartCFrame(targetCFrame)
+                            
+                            carPrimary.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                            carPrimary.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                        end
                     end
                 end
             end
@@ -382,8 +636,8 @@ guiScreen.IgnoreGuiInset = true
 guiScreen.Parent = player.PlayerGui
 
 local guiFrame = Instance.new("Frame")
-guiFrame.Size = UDim2.new(0, 360, 0, 280)
-guiFrame.Position = UDim2.new(0.5, -180, 0.5, -140)
+guiFrame.Size = UDim2.new(0, 360, 0, 380)
+guiFrame.Position = UDim2.new(0.5, -180, 0.5, -190)
 guiFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 28)
 guiFrame.BorderSizePixel = 0
 guiFrame.Parent = guiScreen
@@ -448,7 +702,7 @@ local dropdownArrow = Instance.new("TextLabel")
 dropdownArrow.Size = UDim2.new(0, 30, 1, 0)
 dropdownArrow.Position = UDim2.new(1, -35, 0, 0)
 dropdownArrow.BackgroundTransparency = 1
-dropdownArrow.Text = "⇩"
+dropdownArrow.Text = "v"
 dropdownArrow.TextColor3 = Color3.fromRGB(180, 180, 180)
 dropdownArrow.TextSize = 16
 dropdownArrow.Font = Enum.Font.GothamBold
@@ -476,9 +730,12 @@ local listLayout = Instance.new("UIListLayout")
 listLayout.Padding = UDim.new(0, 2)
 listLayout.Parent = dropdownList
 
+CheckPremiumStatus()
+
 for i = 1, 4 do
     local raceKey = "Race" .. i
     local raceName = RACE_NAMES[raceKey]
+    local isPremiumRace = (i == 3 or i == 4)
     
     local raceOption = Instance.new("TextButton")
     raceOption.Size = UDim2.new(1, 0, 0, 40)
@@ -496,6 +753,45 @@ for i = 1, 4 do
     optionPadding.PaddingLeft = UDim.new(0, 12)
     optionPadding.Parent = raceOption
     
+    if isPremiumRace and not isPremium then
+        local premiumOverlay = Instance.new("Frame")
+        premiumOverlay.Size = UDim2.new(1, 0, 1, 0)
+        premiumOverlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        premiumOverlay.BackgroundTransparency = 0.7
+        premiumOverlay.BorderSizePixel = 0
+        premiumOverlay.ZIndex = 7
+        premiumOverlay.Parent = raceOption
+        
+        local premiumText = Instance.new("TextLabel")
+        premiumText.Size = UDim2.new(1, -10, 1, 0)
+        premiumText.Position = UDim2.new(0, 5, 0, 0)
+        premiumText.BackgroundTransparency = 1
+        premiumText.Text = "🔒 Requires Premium"
+        premiumText.TextColor3 = Color3.fromRGB(255, 200, 100)
+        premiumText.TextSize = 14
+        premiumText.Font = Enum.Font.GothamBold
+        premiumText.TextXAlignment = Enum.TextXAlignment.Center
+        premiumText.ZIndex = 8
+        premiumText.Parent = premiumOverlay
+    elseif isPremiumRace and isPremium then
+        local ownedText = Instance.new("TextLabel")
+        ownedText.Size = UDim2.new(0, 60, 1, 0)
+        ownedText.Position = UDim2.new(1, -68, 0, 0)
+        ownedText.BackgroundTransparency = 1
+        ownedText.Text = "OWNED"
+        ownedText.TextColor3 = Color3.fromRGB(100, 200, 255)
+        ownedText.TextSize = 11
+        ownedText.Font = Enum.Font.GothamBold
+        ownedText.TextXAlignment = Enum.TextXAlignment.Right
+        ownedText.ZIndex = 7
+        ownedText.Parent = raceOption
+        
+        local ownedStroke = Instance.new("UIStroke")
+        ownedStroke.Color = Color3.fromRGB(0, 0, 0)
+        ownedStroke.Thickness = 1.5
+        ownedStroke.Parent = ownedText
+    end
+    
     if i == 1 then
         local topCorner = Instance.new("UICorner")
         topCorner.CornerRadius = UDim.new(0, 10)
@@ -509,7 +805,9 @@ for i = 1, 4 do
     end
     
     raceOption.MouseEnter:Connect(function()
-        raceOption.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+        if not (isPremiumRace and not isPremium) then
+            raceOption.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+        end
     end)
     
     raceOption.MouseLeave:Connect(function()
@@ -517,21 +815,120 @@ for i = 1, 4 do
     end)
     
     raceOption.MouseButton1Click:Connect(function()
+        if isPremiumRace and not isPremium then
+            return
+        end
+        
         selectedRace = raceKey
         raceDropdown.Text = raceName
         dropdownList.Visible = false
-        dropdownArrow.Text = "⇩"
+        dropdownArrow.Text = "v"
     end)
 end
 
 raceDropdown.MouseButton1Click:Connect(function()
     dropdownList.Visible = not dropdownList.Visible
-    dropdownArrow.Text = dropdownList.Visible and "⇧" or "⇩"
+    dropdownArrow.Text = dropdownList.Visible and "^" or "v"
+end)
+
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Size = UDim2.new(1, -20, 0, 20)
+speedLabel.Position = UDim2.new(0, 10, 0, 120)
+speedLabel.BackgroundTransparency = 1
+speedLabel.Text = "Speed: 2"
+speedLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+speedLabel.TextSize = 13
+speedLabel.Font = Enum.Font.GothamMedium
+speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+speedLabel.Parent = guiFrame
+
+AddAdaptiveStroke(speedLabel)
+
+local speedSlider = Instance.new("Frame")
+speedSlider.Size = UDim2.new(1, -20, 0, 6)
+speedSlider.Position = UDim2.new(0, 10, 0, 145)
+speedSlider.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+speedSlider.BorderSizePixel = 0
+speedSlider.Parent = guiFrame
+
+local sliderCorner = Instance.new("UICorner")
+sliderCorner.CornerRadius = UDim.new(1, 0)
+sliderCorner.Parent = speedSlider
+
+local speedFill = Instance.new("Frame")
+speedFill.Size = UDim2.new(0.0476, 0, 1, 0)
+speedFill.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+speedFill.BorderSizePixel = 0
+speedFill.Parent = speedSlider
+
+local fillCorner = Instance.new("UICorner")
+fillCorner.CornerRadius = UDim.new(1, 0)
+fillCorner.Parent = speedFill
+
+local speedKnob = Instance.new("TextButton")
+speedKnob.Size = UDim2.new(0, 16, 0, 16)
+speedKnob.Position = UDim2.new(0.0476, -8, 0.5, -8)
+speedKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+speedKnob.BorderSizePixel = 0
+speedKnob.Text = ""
+speedKnob.Parent = speedSlider
+
+local knobCorner = Instance.new("UICorner")
+knobCorner.CornerRadius = UDim.new(1, 0)
+knobCorner.Parent = speedKnob
+
+local dragging = false
+
+speedKnob.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+    end
+end)
+
+speedKnob.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local sliderPos = speedSlider.AbsolutePosition.X
+        local sliderSize = speedSlider.AbsoluteSize.X
+        local mousePos = input.Position.X
+        
+        local relativePos = math.clamp((mousePos - sliderPos) / sliderSize, 0, 1)
+        
+        local maxSpeed = 24
+        local premiumThreshold = 17
+        
+        if not isPremium and relativePos > ((premiumThreshold - 1) / (maxSpeed - 1)) then
+            relativePos = (premiumThreshold - 1) / (maxSpeed - 1)
+        end
+        
+        currentSpeed = 1 + (relativePos * (maxSpeed - 1))
+        
+        speedFill.Size = UDim2.new(relativePos, 0, 1, 0)
+        speedKnob.Position = UDim2.new(relativePos, -8, 0.5, -8)
+        
+        local speedRounded = math.floor(currentSpeed * 10) / 10
+        
+        if not isPremium and currentSpeed >= premiumThreshold then
+            speedLabel.Text = "Speed: " .. speedRounded .. " (Only premium can go faster)"
+            speedLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+        elseif currentSpeed > 10 then
+            speedLabel.Text = "Speed ( This fast could get you banned ): " .. speedRounded
+            speedLabel.TextColor3 = Color3.fromRGB(255, 220, 0)
+        else
+            speedLabel.Text = "Speed: " .. speedRounded
+            speedLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+        end
+    end
 end)
 
 statusText = Instance.new("TextLabel")
 statusText.Size = UDim2.new(1, -20, 0, 22)
-statusText.Position = UDim2.new(0, 10, 0, 120)
+statusText.Position = UDim2.new(0, 10, 0, 165)
 statusText.BackgroundTransparency = 1
 statusText.Text = "Status: Idle"
 statusText.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -540,9 +937,11 @@ statusText.Font = Enum.Font.GothamMedium
 statusText.TextXAlignment = Enum.TextXAlignment.Left
 statusText.Parent = guiFrame
 
+AddAdaptiveStroke(statusText)
+
 local checkpointText = Instance.new("TextLabel")
 checkpointText.Size = UDim2.new(1, -20, 0, 22)
-checkpointText.Position = UDim2.new(0, 10, 0, 145)
+checkpointText.Position = UDim2.new(0, 10, 0, 190)
 checkpointText.BackgroundTransparency = 1
 checkpointText.Text = "Checkpoint: 0"
 checkpointText.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -551,86 +950,231 @@ checkpointText.Font = Enum.Font.GothamMedium
 checkpointText.TextXAlignment = Enum.TextXAlignment.Left
 checkpointText.Parent = guiFrame
 
-local premiumText = Instance.new("TextLabel")
-premiumText.Size = UDim2.new(1, -20, 0, 22)
-premiumText.Position = UDim2.new(0, 10, 0, 170)
-premiumText.BackgroundTransparency = 1
-premiumText.Text = "Premium: " .. (CheckPremiumStatus() and "Active ⚡" or "Inactive")
-premiumText.TextColor3 = isPremium and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(150, 150, 150)
-premiumText.TextSize = 12
-premiumText.Font = Enum.Font.GothamMedium
-premiumText.TextXAlignment = Enum.TextXAlignment.Left
-premiumText.Parent = guiFrame
+AddAdaptiveStroke(checkpointText)
 
-local startButton = Instance.new("TextButton")
-startButton.Size = UDim2.new(0, 165, 0, 50)
-startButton.Position = UDim2.new(0, 10, 0, 210)
+local playerIcon = Instance.new("ImageLabel")
+playerIcon.Size = UDim2.new(0, 35, 0, 35)
+playerIcon.Position = UDim2.new(1, -45, 0, 218)
+playerIcon.BackgroundTransparency = 1
+playerIcon.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. player.UserId .. "&width=150&height=150&format=png"
+playerIcon.Parent = guiFrame
+
+local iconCorner = Instance.new("UICorner")
+iconCorner.CornerRadius = UDim.new(1, 0)
+iconCorner.Parent = playerIcon
+
+local iconStroke = Instance.new("UIStroke")
+iconStroke.Color = Color3.fromRGB(60, 60, 60)
+iconStroke.Thickness = 2
+iconStroke.Parent = playerIcon
+
+local usernameText = Instance.new("TextLabel")
+usernameText.Size = UDim2.new(1, -90, 0, 20)
+usernameText.Position = UDim2.new(0, 10, 0, 225)
+usernameText.BackgroundTransparency = 1
+usernameText.Text = "@" .. player.DisplayName
+usernameText.TextColor3 = Color3.fromRGB(120, 120, 120)
+usernameText.TextSize = 12
+usernameText.Font = Enum.Font.Gotham
+usernameText.TextXAlignment = Enum.TextXAlignment.Left
+usernameText.Parent = guiFrame
+
+local premiumDiamond = Instance.new("ImageLabel")
+premiumDiamond.Size = UDim2.new(0, 16, 0, 16)
+premiumDiamond.Position = UDim2.new(0, -20, 0.5, -8)
+premiumDiamond.BackgroundTransparency = 1
+premiumDiamond.Image = "rbxassetid://14915516955"
+premiumDiamond.ImageColor3 = Color3.fromRGB(100, 200, 255)
+premiumDiamond.Visible = false
+premiumDiamond.Parent = usernameText
+
+local premiumStatusText = Instance.new("TextLabel")
+premiumStatusText.Size = UDim2.new(1, -90, 0, 18)
+premiumStatusText.Position = UDim2.new(0, 10, 0, 245)
+premiumStatusText.BackgroundTransparency = 1
+premiumStatusText.Text = "Premium: " .. (isPremium and "Active" or "Inactive")
+premiumStatusText.TextColor3 = isPremium and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(150, 150, 150)
+premiumStatusText.TextSize = 11
+premiumStatusText.Font = Enum.Font.GothamMedium
+premiumStatusText.TextXAlignment = Enum.TextXAlignment.Left
+premiumStatusText.Parent = guiFrame
+
+AddAdaptiveStroke(premiumStatusText)
+
+local function updatePremiumUI()
+    CheckPremiumStatus()
+    
+    if isPremium then
+        usernameText.TextColor3 = Color3.fromRGB(255, 255, 255)
+        premiumDiamond.Visible = true
+        iconStroke.Color = Color3.fromRGB(100, 200, 255)
+        premiumStatusText.Text = "Premium: Active"
+        premiumStatusText.TextColor3 = Color3.fromRGB(100, 200, 255)
+        
+        local stroke = premiumStatusText:FindFirstChild("AdaptiveStroke")
+        if stroke then
+            stroke.Color = Color3.fromRGB(0, 0, 0)
+        end
+        
+        if not usernameText:FindFirstChild("UIGradient") then
+            local usernameGradient = Instance.new("UIGradient")
+            usernameGradient.Color = ColorSequence.new{
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 150, 255)),
+                ColorSequenceKeypoint.new(0.5, Color3.fromRGB(100, 200, 255)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 150, 255))
+            }
+            usernameGradient.Offset = Vector2.new(-1, 0)
+            usernameGradient.Parent = usernameText
+            
+            spawn(function()
+                while usernameText.Parent and isPremium do
+                    local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Circular, Enum.EasingDirection.Out)
+                    local tween = TweenService:Create(usernameGradient, tweenInfo, {Offset = Vector2.new(1, 0)})
+                    
+                    tween:Play()
+                    tween.Completed:Wait()
+                    usernameGradient.Offset = Vector2.new(-1, 0)
+                    tween:Play()
+                    tween.Completed:Wait()
+                    usernameGradient.Offset = Vector2.new(-1, 0)
+                    wait(2.5)
+                end
+            end)
+        end
+        
+        spawn(function()
+            while premiumDiamond.Visible and premiumDiamond.Parent and isPremium do
+                local rotateTween = TweenService:Create(premiumDiamond, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {
+                    Rotation = 360
+                })
+                rotateTween:Play()
+                rotateTween.Completed:Wait()
+                premiumDiamond.Rotation = 0
+            end
+        end)
+    else
+        premiumDiamond.Visible = false
+        iconStroke.Color = Color3.fromRGB(60, 60, 60)
+        usernameText.TextColor3 = Color3.fromRGB(120, 120, 120)
+        premiumStatusText.Text = "Premium: Inactive"
+        premiumStatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
+        
+        local stroke = premiumStatusText:FindFirstChild("AdaptiveStroke")
+        if stroke then
+            stroke.Color = Color3.fromRGB(0, 0, 0)
+        end
+    end
+end
+
+spawn(function()
+    wait(1)
+    updatePremiumUI()
+end)
+
+spawn(function()
+    while wait(5) do
+        updatePremiumUI()
+    end
+end)
+
+startButton = Instance.new("TextButton")
+startButton.Size = UDim2.new(1, -20, 0, 50)
+startButton.Position = UDim2.new(0, 10, 0, 275)
 startButton.Text = "Start Farm"
-startButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+startButton.TextColor3 = Color3.fromRGB(0, 0, 0)
 startButton.TextSize = 15
 startButton.Font = Enum.Font.GothamBold
-startButton.BackgroundColor3 = Color3.fromRGB(70, 130, 70)
+startButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 startButton.BorderSizePixel = 0
+startButton.ClipsDescendants = true
 startButton.Parent = guiFrame
 
 local startCorner = Instance.new("UICorner")
 startCorner.CornerRadius = UDim.new(0, 10)
 startCorner.Parent = startButton
 
-local startStroke = Instance.new("UIStroke")
-startStroke.Color = Color3.fromRGB(90, 160, 90)
-startStroke.Thickness = 0
-startStroke.Parent = startButton
+local startGradient = Instance.new("UIGradient")
+startGradient.Name = "ButtonGradient"
+startGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 180, 100)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(70, 130, 70)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 180, 100))
+}
+startGradient.Rotation = 90
+startGradient.Parent = startButton
 
-local stopButton = Instance.new("TextButton")
-stopButton.Size = UDim2.new(0, 165, 0, 50)
-stopButton.Position = UDim2.new(0, 185, 0, 210)
-stopButton.Text = "Stop"
-stopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+stopButton = Instance.new("TextButton")
+stopButton.Size = UDim2.new(1, -20, 0, 0)
+stopButton.Position = UDim2.new(0, 10, 0, 275)
+stopButton.Text = "Stop Race"
+stopButton.TextColor3 = Color3.fromRGB(0, 0, 0)
 stopButton.TextSize = 15
 stopButton.Font = Enum.Font.GothamBold
-stopButton.BackgroundColor3 = Color3.fromRGB(130, 70, 70)
+stopButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 stopButton.BorderSizePixel = 0
+stopButton.Visible = false
+stopButton.ClipsDescendants = true
 stopButton.Parent = guiFrame
 
 local stopCorner = Instance.new("UICorner")
 stopCorner.CornerRadius = UDim.new(0, 10)
 stopCorner.Parent = stopButton
 
-local stopStroke = Instance.new("UIStroke")
-stopStroke.Color = Color3.fromRGB(160, 90, 90)
-stopStroke.Thickness = 0
-stopStroke.Parent = stopButton
+local stopGradient = Instance.new("UIGradient")
+stopGradient.Name = "ButtonGradient"
+stopGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(180, 70, 70)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(130, 70, 70)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 70, 70))
+}
+stopGradient.Rotation = 90
+stopGradient.Parent = stopButton
 
-local function addButtonHover(button, normalColor, hoverColor, stroke)
+resetButton = Instance.new("TextButton")
+resetButton.Size = UDim2.new(1, -20, 0, 0)
+resetButton.Position = UDim2.new(0, 10, 0, 330)
+resetButton.Text = "Reset Race"
+resetButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+resetButton.TextSize = 14
+resetButton.Font = Enum.Font.GothamBold
+resetButton.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+resetButton.BorderSizePixel = 0
+resetButton.Visible = false
+resetButton.ClipsDescendants = true
+resetButton.Parent = guiFrame
+
+local resetCorner = Instance.new("UICorner")
+resetCorner.CornerRadius = UDim.new(0, 10)
+resetCorner.Parent = resetButton
+
+local resetGradient = Instance.new("UIGradient")
+resetGradient.Name = "ButtonGradient"
+resetGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 100, 120)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(70, 70, 90)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 100, 120))
+}
+resetGradient.Rotation = 90
+resetGradient.Parent = resetButton
+
+local function addButtonHover(button, hoverScale)
     local originalSize = button.Size
-    local pressedSize = UDim2.new(originalSize.X.Scale, originalSize.X.Offset - 4, originalSize.Y.Scale, originalSize.Y.Offset - 4)
     
     button.MouseEnter:Connect(function()
         TweenService:Create(button, TweenInfo.new(0.2), {
-            BackgroundColor3 = hoverColor
+            Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset + 4, originalSize.Y.Scale, originalSize.Y.Offset + 2)
         }):Play()
-        if stroke then
-            TweenService:Create(stroke, TweenInfo.new(0.2), {
-                Thickness = 2
-            }):Play()
-        end
     end)
     
     button.MouseLeave:Connect(function()
         TweenService:Create(button, TweenInfo.new(0.2), {
-            BackgroundColor3 = normalColor
+            Size = originalSize
         }):Play()
-        if stroke then
-            TweenService:Create(stroke, TweenInfo.new(0.2), {
-                Thickness = 0
-            }):Play()
-        end
     end)
     
     button.MouseButton1Down:Connect(function()
         TweenService:Create(button, TweenInfo.new(0.1), {
-            Size = pressedSize
+            Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset - 4, originalSize.Y.Scale, originalSize.Y.Offset - 2)
         }):Play()
     end)
     
@@ -641,9 +1185,8 @@ local function addButtonHover(button, normalColor, hoverColor, stroke)
     end)
 end
 
-addButtonHover(startButton, Color3.fromRGB(70, 130, 70), Color3.fromRGB(85, 155, 85), startStroke)
-addButtonHover(stopButton, Color3.fromRGB(130, 70, 70), Color3.fromRGB(155, 85, 85), stopStroke)
-addButtonHover(raceDropdown, Color3.fromRGB(35, 35, 38), Color3.fromRGB(45, 45, 48), dropdownStroke)
+addButtonHover(startButton, 1.05)
+addButtonHover(raceDropdown, 1.02)
 
 startButton.MouseButton1Click:Connect(function()
     if not IsPlayerInCar() then
@@ -662,9 +1205,28 @@ end)
 
 stopButton.MouseButton1Click:Connect(function()
     StopRacing()
+    AnimateButtonsOut()
     statusText.Text = "Status: Stopped"
     statusText.TextColor3 = Color3.fromRGB(180, 180, 180)
     checkpointText.Text = "Checkpoint: 0"
+end)
+
+resetButton.MouseButton1Click:Connect(function()
+    if raceActive then
+        StopRacing()
+        wait(0.5)
+    end
+    
+    currentCheckpoint = 1
+    checkpointText.Text = "Checkpoint: 0"
+    statusText.Text = "Status: Reset"
+    statusText.TextColor3 = Color3.fromRGB(180, 180, 180)
+    
+    wait(1)
+    
+    if not raceActive then
+        statusText.Text = "Status: Idle"
+    end
 end)
 
 spawn(function()
@@ -675,7 +1237,7 @@ spawn(function()
     end
 end)
 
-local dragging = false
+local frameDragging = false
 local dragInput
 local dragStart
 local startPos
@@ -687,13 +1249,13 @@ end
 
 guiFrame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
+        frameDragging = true
         dragStart = input.Position
         startPos = guiFrame.Position
 
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
+                frameDragging = false
             end
         end)
     end
@@ -706,7 +1268,7 @@ guiFrame.InputChanged:Connect(function(input)
 end)
 
 game:GetService("UserInputService").InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
+    if input == dragInput and frameDragging then
         update(input)
     end
 end)
