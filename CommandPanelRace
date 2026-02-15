@@ -53,7 +53,7 @@ local function CheckPremiumStatus()
     end
     
     local success, owns = pcall(function()
-        return MarketplaceService:UserOwnsGamePassAsync(player.UserId, PREMIUM_SHIRT_ID)
+        return MarketplaceService:PlayerOwnsAsset(player, PREMIUM_SHIRT_ID)
     end)
     isPremium = success and owns
     return isPremium
