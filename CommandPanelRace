@@ -26,6 +26,9 @@ local MANUAL_CHECKPOINTS = {
         [26] = Vector3.new(-10175, -110, 2598),
         [27] = Vector3.new(-10955, -101, 2917),
         [28] = Vector3.new(-11597, -48, 3198),
+        [36] = Vector3.new(-15492, 6, 8069),
+        [37] = Vector3.new(-15690, -6, 8712),
+        [38] = Vector3.new(-15940, -18, 9527),
     }
 }
 
@@ -284,8 +287,8 @@ local function PlayShineEffect(button)
     
     local shineFrame = Instance.new("Frame")
     shineFrame.Name = "ShineFrame"
-    shineFrame.Size = UDim2.new(0.3, 0, 1.5, 0)
-    shineFrame.Position = UDim2.new(-0.3, 0, -0.25, 0)
+    shineFrame.Size = UDim2.new(0.2, 0, 1.2, 0)
+    shineFrame.Position = UDim2.new(-0.2, 0, -0.1, 0)
     shineFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     shineFrame.BackgroundTransparency = 0.6
     shineFrame.BorderSizePixel = 0
@@ -305,7 +308,7 @@ local function PlayShineEffect(button)
     shineGradient.Parent = shineFrame
     
     local shineTween = TweenService:Create(shineFrame, TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-        Position = UDim2.new(1.3, 0, -0.25, 0)
+        Position = UDim2.new(1.2, 0, -0.1, 0)
     })
     
     shineTween:Play()
@@ -316,12 +319,15 @@ end
 
 local function TypewriterEffect(textLabel, fullText, duration)
     textLabel.Text = ""
-    local chars = fullText:split("")
+    local chars = {}
+    for i = 1, #fullText do
+        chars[i] = fullText:sub(i, i)
+    end
     local delayPerChar = duration / #chars
     
     for i, char in ipairs(chars) do
         textLabel.Text = textLabel.Text .. char
-        wait(delayPerChar)
+        task.wait(delayPerChar)
     end
 end
 
@@ -360,7 +366,7 @@ local function AnimateButtonsIn()
         TypewriterEffect(stopButton, "Stop Race", 0.3)
     end)
     
-    wait(0.1)
+    task.wait(0.1)
     resetTween:Play()
     spawn(function()
         TypewriterEffect(resetButton, "Reset Race", 0.3)
@@ -369,7 +375,7 @@ local function AnimateButtonsIn()
     resetTween.Completed:Wait()
     
     PlayShineEffect(stopButton)
-    wait(0.1)
+    task.wait(0.1)
     PlayShineEffect(resetButton)
 end
 
@@ -431,7 +437,7 @@ local function StartRacing()
             statusText.Text = "Status: Race not found"
             statusText.TextColor3 = Color3.fromRGB(255, 130, 130)
         end
-        wait(2)
+        task.wait(2)
         if not raceActive and statusText then
             statusText.Text = "Status: Idle"
             statusText.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -465,7 +471,7 @@ local function StartRacing()
                 statusText.Text = "Status: Starting in " .. i .. "s"
                 statusText.TextColor3 = Color3.fromRGB(255, 200, 100)
             end
-            wait(1)
+            task.wait(1)
         end
         
         if not raceActive then return end
@@ -490,7 +496,7 @@ local function StartRacing()
         spawn(function()
             while raceActive do
                 setupExistingVehicles()
-                wait(1)
+                task.wait(1)
             end
         end)
         
@@ -557,7 +563,7 @@ local function StartRacing()
                             statusText.Text = "Status: Finishing..."
                             statusText.TextColor3 = Color3.fromRGB(100, 255, 255)
                         end
-                        wait(3)
+                        task.wait(3)
                         if statusText then
                             statusText.Text = "Status: Race Completed"
                             statusText.TextColor3 = Color3.fromRGB(100, 255, 100)
@@ -692,6 +698,8 @@ local listLayout = Instance.new("UIListLayout")
 listLayout.Padding = UDim.new(0, 2)
 listLayout.Parent = dropdownList
 
+CheckPremiumStatus()
+
 for i = 1, 4 do
     local raceKey = "Race" .. i
     local raceName = RACE_NAMES[raceKey]
@@ -736,11 +744,11 @@ for i = 1, 4 do
     elseif isPremiumRace and isPremium then
         local ownedText = Instance.new("TextLabel")
         ownedText.Size = UDim2.new(0, 60, 1, 0)
-        ownedText.Position = UDim2.new(1, -65, 0, 0)
+        ownedText.Position = UDim2.new(1, -68, 0, 0)
         ownedText.BackgroundTransparency = 1
         ownedText.Text = "OWNED"
         ownedText.TextColor3 = Color3.fromRGB(100, 200, 255)
-        ownedText.TextSize = 10
+        ownedText.TextSize = 11
         ownedText.Font = Enum.Font.GothamBold
         ownedText.TextXAlignment = Enum.TextXAlignment.Right
         ownedText.ZIndex = 7
@@ -928,15 +936,6 @@ usernameText.Font = Enum.Font.Gotham
 usernameText.TextXAlignment = Enum.TextXAlignment.Left
 usernameText.Parent = guiFrame
 
-local premiumDiamond = Instance.new("ImageLabel")
-premiumDiamond.Size = UDim2.new(0, 16, 0, 16)
-premiumDiamond.Position = UDim2.new(0, -20, 0.5, -8)
-premiumDiamond.BackgroundTransparency = 1
-premiumDiamond.Image = "rbxassetid://14915516955"
-premiumDiamond.ImageColor3 = Color3.fromRGB(100, 200, 255)
-premiumDiamond.Visible = false
-premiumDiamond.Parent = usernameText
-
 local premiumStatusText = Instance.new("TextLabel")
 premiumStatusText.Size = UDim2.new(1, -90, 0, 18)
 premiumStatusText.Position = UDim2.new(0, 10, 0, 245)
@@ -953,7 +952,6 @@ local function updatePremiumUI()
     
     if isPremium then
         usernameText.TextColor3 = Color3.fromRGB(255, 255, 255)
-        premiumDiamond.Visible = true
         iconStroke.Color = Color3.fromRGB(100, 200, 255)
         premiumStatusText.Text = "Premium: Active"
         premiumStatusText.TextColor3 = Color3.fromRGB(100, 200, 255)
@@ -979,23 +977,11 @@ local function updatePremiumUI()
                     tween:Play()
                     tween.Completed:Wait()
                     usernameGradient.Offset = Vector2.new(-1, 0)
-                    wait(2.5)
+                    task.wait(2.5)
                 end
             end)
         end
-        
-        spawn(function()
-            while premiumDiamond.Visible and premiumDiamond.Parent and isPremium do
-                local rotateTween = TweenService:Create(premiumDiamond, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {
-                    Rotation = 360
-                })
-                rotateTween:Play()
-                rotateTween.Completed:Wait()
-                premiumDiamond.Rotation = 0
-            end
-        end)
     else
-        premiumDiamond.Visible = false
         iconStroke.Color = Color3.fromRGB(60, 60, 60)
         usernameText.TextColor3 = Color3.fromRGB(120, 120, 120)
         premiumStatusText.Text = "Premium: Inactive"
@@ -1004,12 +990,12 @@ local function updatePremiumUI()
 end
 
 spawn(function()
-    wait(1)
+    task.wait(1)
     updatePremiumUI()
 end)
 
 spawn(function()
-    while wait(5) do
+    while task.wait(5) do
         updatePremiumUI()
     end
 end)
@@ -1129,7 +1115,7 @@ startButton.MouseButton1Click:Connect(function()
     if not IsPlayerInCar() then
         statusText.Text = "Status: Get in car first"
         statusText.TextColor3 = Color3.fromRGB(255, 130, 130)
-        wait(2)
+        task.wait(2)
         if not raceActive then
             statusText.Text = "Status: Idle"
             statusText.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -1151,7 +1137,7 @@ end)
 resetButton.MouseButton1Click:Connect(function()
     if raceActive then
         StopRacing()
-        wait(0.5)
+        task.wait(0.5)
     end
     
     currentCheckpoint = 1
@@ -1159,7 +1145,7 @@ resetButton.MouseButton1Click:Connect(function()
     statusText.Text = "Status: Reset"
     statusText.TextColor3 = Color3.fromRGB(180, 180, 180)
     
-    wait(1)
+    task.wait(1)
     
     if not raceActive then
         statusText.Text = "Status: Idle"
@@ -1167,7 +1153,7 @@ resetButton.MouseButton1Click:Connect(function()
 end)
 
 spawn(function()
-    while wait(0.5) do
+    while task.wait(0.5) do
         if raceActive then
             checkpointText.Text = "Checkpoint: " .. currentCheckpoint
         end
