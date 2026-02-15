@@ -6,7 +6,7 @@ local player = Players.LocalPlayer
 
 local PREMIUM_SHIRT_ID = 132268448125497
 local CHECKPOINT_DISTANCE = 20
-local WAIT_BEFORE_START = 8
+local WAIT_BEFORE_START = 5
 local CAR_HEIGHT = 4
 local TELEPORT_TIMEOUT = 10
 
