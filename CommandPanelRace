@@ -22,7 +22,7 @@ local MANUAL_CHECKPOINTS = {
         [15] = Vector3.new(-4659, 30, 852),
         [16] = Vector3.new(-5583, 18, 1049),
         [17] = Vector3.new(-6613, 9, 1267),
-        [18] = Vector3.new(-7326, 9, 1410),
+        [18] = Vector3.new(-7330, 10, 1410),
         [19] = Vector3.new(-6617, 9, 1266),
         [20] = Vector3.new(-7318, 9, 1425),
         [26] = Vector3.new(-10175, -110, 2598),
@@ -531,6 +531,30 @@ local function StartRacing()
             
             if finishReached then return end
             
+            if currentCheckpoint > 50 then
+                local finish = FindFinish()
+                if finish then
+                    if IsCheckpointCollected(finish) and not finishReached then
+                        finishReached = true
+                        if statusText then
+                            statusText.Text = "Status: Finishing..."
+                            statusText.TextColor3 = Color3.fromRGB(100, 255, 255)
+                        end
+                        task.wait(3)
+                        if statusText then
+                            statusText.Text = "Status: Race Completed"
+                            statusText.TextColor3 = Color3.fromRGB(100, 255, 100)
+                        end
+                        StopRacing()
+                        AnimateButtonsOut()
+                        return
+                    else
+                        MoveCarSmoothly(finish.Position)
+                    end
+                end
+                return
+            end
+            
             if currentCheckpoint ~= lastCheckpointNumber then
                 checkpointStartTime = tick()
                 lastCheckpointNumber = currentCheckpoint
@@ -538,28 +562,31 @@ local function StartRacing()
             
             local checkpoint = FindCheckpoint(currentCheckpoint)
             
-            if checkpoint and IsCheckpointCollected(checkpoint) then
-                currentCheckpoint = currentCheckpoint + 1
-                return
-            end
-            
-            local targetPos = GetTargetPosition()
-            
-            if targetPos then
-                local timeOnCurrentCheckpoint = tick() - checkpointStartTime
+            if checkpoint then
+                local distance = (carPrimary.Position - checkpoint.Position).Magnitude
                 
-                if checkpoint and not IsCheckpointCollected(checkpoint) and timeOnCurrentCheckpoint > TELEPORT_TIMEOUT then
-                    TeleportToPosition(targetPos)
+                if IsCheckpointCollected(checkpoint) and distance < 100 then
+                    currentCheckpoint = currentCheckpoint + 1
                     checkpointStartTime = tick()
+                    return
                 else
-                    MoveCarSmoothly(targetPos)
+                    local manualPos = GetManualCheckpointPosition(currentCheckpoint)
+                    local targetPos = manualPos or checkpoint.Position
+                    
+                    local timeOnCurrentCheckpoint = tick() - checkpointStartTime
+                    
+                    if timeOnCurrentCheckpoint > TELEPORT_TIMEOUT then
+                        TeleportToPosition(targetPos)
+                        checkpointStartTime = tick()
+                    else
+                        MoveCarSmoothly(targetPos)
+                    end
+                    return
                 end
             else
                 local finish = FindFinish()
                 if finish then
-                    local distance = (carPrimary.Position - finish.Position).Magnitude
-                    
-                    if distance <= CHECKPOINT_DISTANCE and IsCheckpointCollected(finish) and not finishReached then
+                    if IsCheckpointCollected(finish) and not finishReached then
                         finishReached = true
                         if statusText then
                             statusText.Text = "Status: Finishing..."
@@ -577,21 +604,8 @@ local function StartRacing()
                         MoveCarSmoothly(finish.Position)
                     end
                 else
-                    if carPrimary then
-                        local forwardDirection = carPrimary.CFrame.LookVector
-                        local lookDirection = Vector3.new(forwardDirection.X, 0, forwardDirection.Z).Unit
-                        
-                        if lookDirection.Magnitude > 0 then
-                            local currentPos = carPrimary.Position
-                            local newPos = currentPos + (lookDirection * currentSpeed)
-                            
-                            local targetCFrame = CFrame.new(newPos, newPos + lookDirection)
-                            carModel:SetPrimaryPartCFrame(targetCFrame)
-                            
-                            carPrimary.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                            carPrimary.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                        end
-                    end
+                    currentCheckpoint = currentCheckpoint + 1
+                    checkpointStartTime = tick()
                 end
             end
         end)
