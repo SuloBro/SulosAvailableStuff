@@ -6,8 +6,8 @@ local player = Players.LocalPlayer
 
 local PREMIUM_SHIRT_ID = 132268448125497
 local CHECKPOINT_DISTANCE = 20
-local WAIT_BEFORE_START = 8
-local CAR_HEIGHT = 4
+local WAIT_BEFORE_START = 7
+local CAR_HEIGHT = 3.7
 local TELEPORT_TIMEOUT = 10
 
 local RACE_NAMES = {
@@ -31,6 +31,7 @@ local MANUAL_CHECKPOINTS = {
         [36] = Vector3.new(-15492, 6, 8069),
         [37] = Vector3.new(-15690, -6, 8712),
         [38] = Vector3.new(-15940, -18, 9527),
+        [40] = Vector3.new(-16208, -2, 10414),
     }
 }
 
@@ -52,10 +53,11 @@ local function CheckPremiumStatus()
         return isPremium
     end
     
-    local success, owns = pcall(function()
+    local success, result = pcall(function()
         return MarketplaceService:PlayerOwnsAsset(player, PREMIUM_SHIRT_ID)
     end)
-    isPremium = success and owns
+    
+    isPremium = success and result
     return isPremium
 end
 
@@ -537,10 +539,20 @@ local function StartRacing()
             end
             
             local checkpoint = FindCheckpoint(currentCheckpoint)
+            local manualCheckpoint = GetManualCheckpointPosition(currentCheckpoint)
             
-            if checkpoint and IsCheckpointCollected(checkpoint) then
-                currentCheckpoint = currentCheckpoint + 1
-                return
+            if (checkpoint and IsCheckpointCollected(checkpoint)) or (manualCheckpoint and not checkpoint) then
+                local carPos = carPrimary.Position
+                local checkpointPos = checkpoint and checkpoint.Position or manualCheckpoint
+                
+                if checkpointPos then
+                    local distance = (carPos - checkpointPos).Magnitude
+                    if distance <= CHECKPOINT_DISTANCE then
+                        currentCheckpoint = currentCheckpoint + 1
+                        checkpointStartTime = tick()
+                        return
+                    end
+                end
             end
             
             local targetPos = GetTargetPosition()
@@ -736,7 +748,7 @@ for i = 1, 4 do
         premiumText.Size = UDim2.new(1, -10, 1, 0)
         premiumText.Position = UDim2.new(0, 5, 0, 0)
         premiumText.BackgroundTransparency = 1
-        premiumText.Text = "🔒 Requires Premium"
+        premiumText.Text = "Requires Premium"
         premiumText.TextColor3 = Color3.fromRGB(255, 200, 100)
         premiumText.TextSize = 14
         premiumText.Font = Enum.Font.GothamBold
