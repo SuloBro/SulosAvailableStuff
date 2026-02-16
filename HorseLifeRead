@@ -100,7 +100,6 @@ end
 setupCharacter(Player.Character or Player.CharacterAdded:Wait())
 safeConnect(Player.CharacterAdded, setupCharacter)
 
--- GUI Creation
 local GUI = Instance.new("ScreenGui")
 local Frame = Instance.new("Frame")
 local FrameGlow = Instance.new("UIStroke")
@@ -116,7 +115,6 @@ local SupportButton = Instance.new("TextButton")
 local WildOnlyButton = Instance.new("TextButton")
 local CloseButton = Instance.new("TextButton")
 
--- Text Strokes
 local TitleStroke = Instance.new("UIStroke")
 local IslandStroke = Instance.new("UIStroke")
 local StatusStroke = Instance.new("UIStroke")
@@ -129,14 +127,12 @@ local SupportTextStroke = Instance.new("UIStroke")
 local WildOnlyTextStroke = Instance.new("UIStroke")
 local CloseTextStroke = Instance.new("UIStroke")
 
--- Notification System
 local NotificationFrame = Instance.new("Frame")
 local NotificationLabel = Instance.new("TextLabel")
 local NotificationCorner = Instance.new("UICorner")
 local NotificationStroke = Instance.new("UIStroke")
 local NotificationTextStroke = Instance.new("UIStroke")
 
--- Group Warning Frame
 local GroupWarningFrame = Instance.new("Frame")
 local GroupWarningLabel = Instance.new("TextLabel")
 local GroupWarningButton = Instance.new("TextButton")
@@ -147,7 +143,6 @@ local GroupWarningButtonCorner = Instance.new("UICorner")
 local GroupWarningButtonStroke = Instance.new("UIStroke")
 local GroupWarningButtonGradient = Instance.new("UIGradient")
 
--- Loading Screen
 local LoadingFrame = Instance.new("Frame")
 local WelcomeLabel = Instance.new("TextLabel")
 local SubtitleLabel = Instance.new("TextLabel")
@@ -155,7 +150,6 @@ local LoadingCorner = Instance.new("UICorner")
 local WelcomeStroke = Instance.new("UIStroke")
 local SubtitleStroke = Instance.new("UIStroke")
 
--- UICorners
 local FrameCorner = Instance.new("UICorner")
 local TeleportCorner = Instance.new("UICorner")
 local RefreshCorner = Instance.new("UICorner")
@@ -165,11 +159,9 @@ local WildOnlyCorner = Instance.new("UICorner")
 local CloseCorner = Instance.new("UICorner")
 local WarningCorner = Instance.new("UICorner")
 
--- UIStrokes for BORDERS
 local FrameStroke = Instance.new("UIStroke")
 local WarningStroke = Instance.new("UIStroke")
 
--- UIGradients for Buttons
 local TeleportGradient = Instance.new("UIGradient")
 local RefreshGradient = Instance.new("UIGradient")
 local ThemeGradient = Instance.new("UIGradient")
@@ -177,7 +169,6 @@ local SupportGradient = Instance.new("UIGradient")
 local WildOnlyGradient = Instance.new("UIGradient")
 local CloseGradient = Instance.new("UIGradient")
 
--- HOVER STROKES
 local TeleportHoverStroke = Instance.new("UIStroke")
 local RefreshHoverStroke = Instance.new("UIStroke")
 local ThemeHoverStroke = Instance.new("UIStroke")
@@ -185,7 +176,6 @@ local SupportHoverStroke = Instance.new("UIStroke")
 local WildOnlyHoverStroke = Instance.new("UIStroke")
 local CloseHoverStroke = Instance.new("UIStroke")
 
--- Parent corners
 FrameCorner.Parent = Frame
 TeleportCorner.Parent = TeleportButton
 RefreshCorner.Parent = RefreshButton
@@ -195,19 +185,16 @@ WildOnlyCorner.Parent = WildOnlyButton
 CloseCorner.Parent = CloseButton
 WarningCorner.Parent = WarningLabel
 
--- Frame Glow Effect
 FrameGlow.Parent = Frame
 FrameGlow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 FrameGlow.Thickness = 4
 FrameGlow.Transparency = 0.3
 
--- Parent border strokes
 FrameStroke.Parent = Frame
 FrameStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 WarningStroke.Parent = WarningLabel
 WarningStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
--- Parent gradients
 TeleportGradient.Parent = TeleportButton
 RefreshGradient.Parent = RefreshButton
 ThemeGradient.Parent = ThemeButton
@@ -215,7 +202,6 @@ SupportGradient.Parent = SupportButton
 WildOnlyGradient.Parent = WildOnlyButton
 CloseGradient.Parent = CloseButton
 
--- Parent hover strokes
 TeleportHoverStroke.Parent = TeleportButton
 TeleportHoverStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 RefreshHoverStroke.Parent = RefreshButton
@@ -229,7 +215,6 @@ WildOnlyHoverStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 CloseHoverStroke.Parent = CloseButton
 CloseHoverStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
--- Parent text strokes
 TitleStroke.Parent = TitleLabel
 IslandStroke.Parent = IslandLabel
 StatusStroke.Parent = StatusLabel
@@ -242,7 +227,6 @@ SupportTextStroke.Parent = SupportButton
 WildOnlyTextStroke.Parent = WildOnlyButton
 CloseTextStroke.Parent = CloseButton
 
--- Setup text strokes
 for _, stroke in pairs({TitleStroke, IslandStroke, StatusStroke, WarningTextStroke, ControlsStroke, 
 						TeleportTextStroke, RefreshTextStroke, ThemeTextStroke, SupportTextStroke, WildOnlyTextStroke, CloseTextStroke}) do
 	stroke.Color = Color3.fromRGB(0, 0, 0)
@@ -250,7 +234,6 @@ for _, stroke in pairs({TitleStroke, IslandStroke, StatusStroke, WarningTextStro
 	stroke.Transparency = 0
 end
 
--- Setup hover strokes
 for _, stroke in pairs({TeleportHoverStroke, RefreshHoverStroke, ThemeHoverStroke, SupportHoverStroke, WildOnlyHoverStroke, CloseHoverStroke}) do
 	stroke.Thickness = 3
 	stroke.Transparency = 1
@@ -259,8 +242,8 @@ end
 GUI.Name = "TeleportGUI"
 GUI.Parent = Player:WaitForChild("PlayerGui")
 GUI.ResetOnSpawn = false
+GUI.IgnoreGuiInset = true
 
--- Loading Screen Setup
 LoadingFrame.Name = "LoadingScreen"
 LoadingFrame.Size = UDim2.new(1, 0, 1, 0)
 LoadingFrame.Position = UDim2.new(0, 0, 0, 0)
@@ -302,17 +285,16 @@ SubtitleStroke.Parent = SubtitleLabel
 SubtitleStroke.Color = Color3.fromRGB(0, 0, 0)
 SubtitleStroke.Thickness = 2
 
--- Notification Setup
 NotificationFrame.Name = "NotificationFrame"
-NotificationFrame.Size = UDim2.new(0.75, 0, 0.12, 0)
-NotificationFrame.Position = UDim2.new(1, 0, 0, 20)
+NotificationFrame.Size = UDim2.new(0.25, 0, 0.055, 0)
+NotificationFrame.Position = UDim2.new(1, 0, 0.02, 0)
 NotificationFrame.BackgroundColor3 = THEMES.Cyberpunk.NotifBG
 NotificationFrame.BorderSizePixel = 0
 NotificationFrame.ZIndex = 100
 NotificationFrame.Visible = false
 NotificationFrame.Parent = GUI
 
-NotificationCorner.CornerRadius = UDim.new(0, 15)
+NotificationCorner.CornerRadius = UDim.new(0.15, 0)
 NotificationCorner.Parent = NotificationFrame
 
 NotificationStroke.Parent = NotificationFrame
@@ -321,8 +303,8 @@ NotificationStroke.Thickness = 3
 NotificationStroke.Transparency = 0.3
 NotificationStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
-NotificationLabel.Size = UDim2.new(1, -20, 1, -20)
-NotificationLabel.Position = UDim2.new(0, 10, 0, 10)
+NotificationLabel.Size = UDim2.new(0.9, 0, 0.8, 0)
+NotificationLabel.Position = UDim2.new(0.05, 0, 0.1, 0)
 NotificationLabel.Text = ""
 NotificationLabel.Font = Enum.Font.FredokaOne
 NotificationLabel.TextSize = 14
@@ -339,9 +321,8 @@ NotificationTextStroke.Parent = NotificationLabel
 NotificationTextStroke.Color = Color3.fromRGB(0, 0, 0)
 NotificationTextStroke.Thickness = 2
 
--- Group Warning Frame Setup (SCALE-BASED)
 GroupWarningFrame.Name = "GroupWarningFrame"
-GroupWarningFrame.Size = UDim2.new(0.85, 0, 0.4, 0)
+GroupWarningFrame.Size = UDim2.new(0.4, 0, 0.28, 0)
 GroupWarningFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 GroupWarningFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 GroupWarningFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
@@ -402,17 +383,16 @@ GroupWarningButtonStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 GroupWarningButtonGradient.Parent = GroupWarningButton
 GroupWarningButtonGradient.Color = ColorSequence.new(Color3.fromRGB(100, 50, 200), Color3.fromRGB(150, 100, 255))
 
--- Main Frame (MOBILE FRIENDLY - SCALED)
 Frame.Name = "TPFrame"
-Frame.Size = UDim2.new(0.85, 0, 0.75, 0)
-Frame.Position = UDim2.new(0.075, 0, 0.125, 0)
-Frame.AnchorPoint = Vector2.new(0, 0)
+Frame.Size = UDim2.new(0.28, 0, 0.38, 0)
+Frame.Position = UDim2.new(0.5, 0, 0.5, 0)
+Frame.AnchorPoint = Vector2.new(0.5, 0.5)
 Frame.BorderSizePixel = 0
 Frame.BackgroundTransparency = 0.1
 Frame.Parent = GUI
 
-TitleLabel.Size = UDim2.new(1, -30, 0.08, 0)
-TitleLabel.Position = UDim2.new(0, 15, 0, 8)
+TitleLabel.Size = UDim2.new(0.8, 0, 0.1, 0)
+TitleLabel.Position = UDim2.new(0.05, 0, 0.02, 0)
 TitleLabel.Text = "🍕 • Sulo's Horse Finder"
 TitleLabel.Font = Enum.Font.FredokaOne
 TitleLabel.TextSize = 18
@@ -422,8 +402,8 @@ TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.Parent = Frame
 
 IslandLabel.Name = "IslandLabel"
-IslandLabel.Size = UDim2.new(1, -30, 0.05, 0)
-IslandLabel.Position = UDim2.new(0, 15, 0.08, 0)
+IslandLabel.Size = UDim2.new(0.9, 0, 0.06, 0)
+IslandLabel.Position = UDim2.new(0.05, 0, 0.12, 0)
 IslandLabel.Text = "🌴 • Island: Loading..."
 IslandLabel.Font = Enum.Font.FredokaOne
 IslandLabel.TextSize = 14
@@ -432,8 +412,8 @@ IslandLabel.BackgroundTransparency = 1
 IslandLabel.TextXAlignment = Enum.TextXAlignment.Left
 IslandLabel.Parent = Frame
 
-CloseButton.Size = UDim2.new(0.08, 0, 0.08, 0)
-CloseButton.Position = UDim2.new(0.92, 0, 0.01, 0)
+CloseButton.Size = UDim2.new(0.12, 0, 0.1, 0)
+CloseButton.Position = UDim2.new(0.86, 0, 0.02, 0)
 CloseButton.Text = "X"
 CloseButton.Font = Enum.Font.FredokaOne
 CloseButton.TextSize = 18
@@ -442,8 +422,8 @@ CloseButton.AutoButtonColor = false
 CloseButton.BorderSizePixel = 0
 CloseButton.Parent = Frame
 
-StatusLabel.Size = UDim2.new(1, -30, 0.18, 0)
-StatusLabel.Position = UDim2.new(0, 15, 0.15, 0)
+StatusLabel.Size = UDim2.new(0.9, 0, 0.15, 0)
+StatusLabel.Position = UDim2.new(0.05, 0, 0.19, 0)
 StatusLabel.Font = Enum.Font.FredokaOne
 StatusLabel.TextSize = 13
 StatusLabel.TextScaled = true
@@ -453,8 +433,8 @@ StatusLabel.BackgroundTransparency = 1
 StatusLabel.Parent = Frame
 
 WarningLabel.Name = "WarningLabel"
-WarningLabel.Size = UDim2.new(1, -30, 0.08, 0)
-WarningLabel.Position = UDim2.new(0, 15, 0.35, 0)
+WarningLabel.Size = UDim2.new(0.9, 0, 0.08, 0)
+WarningLabel.Position = UDim2.new(0.05, 0, 0.35, 0)
 WarningLabel.Text = "..."
 WarningLabel.Font = Enum.Font.FredokaOne
 WarningLabel.TextSize = 12
@@ -464,10 +444,10 @@ WarningLabel.BackgroundColor3 = THEMES.Cyberpunk.WarningBG_Other
 WarningLabel.BorderSizePixel = 0
 WarningLabel.Visible = false
 WarningLabel.Parent = Frame
-WarningCorner.CornerRadius = UDim.new(0, 12)
+WarningCorner.CornerRadius = UDim.new(0.15, 0)
 
-ControlsLabel.Size = UDim2.new(1, -30, 0.15, 0)
-ControlsLabel.Position = UDim2.new(0, 15, 0.45, 0)
+ControlsLabel.Size = UDim2.new(0.9, 0, 0.12, 0)
+ControlsLabel.Position = UDim2.new(0.05, 0, 0.44, 0)
 ControlsLabel.Text = "CONTROLS:\nZ = Teleport  |  X = Search  |  C = Theme\nV = Support  |  B = Wild Only Mode"
 ControlsLabel.Font = Enum.Font.FredokaOne
 ControlsLabel.TextSize = 10
@@ -477,9 +457,8 @@ ControlsLabel.TextYAlignment = Enum.TextYAlignment.Top
 ControlsLabel.BackgroundTransparency = 1
 ControlsLabel.Parent = Frame
 
--- First Row of Buttons (Responsive sizing)
-TeleportButton.Size = UDim2.new(0.2, -8, 0.1, 0)
-TeleportButton.Position = UDim2.new(0, 15, 0.62, 0)
+TeleportButton.Size = UDim2.new(0.43, 0, 0.1, 0)
+TeleportButton.Position = UDim2.new(0.05, 0, 0.57, 0)
 TeleportButton.Text = "Z • TP"
 TeleportButton.Font = Enum.Font.FredokaOne
 TeleportButton.TextSize = 12
@@ -488,8 +467,8 @@ TeleportButton.AutoButtonColor = false
 TeleportButton.BorderSizePixel = 0
 TeleportButton.Parent = Frame
 
-RefreshButton.Size = UDim2.new(0.2, -8, 0.1, 0)
-RefreshButton.Position = UDim2.new(0.235, 0, 0.62, 0)
+RefreshButton.Size = UDim2.new(0.43, 0, 0.1, 0)
+RefreshButton.Position = UDim2.new(0.52, 0, 0.57, 0)
 RefreshButton.Text = "X • Search"
 RefreshButton.Font = Enum.Font.FredokaOne
 RefreshButton.TextSize = 11
@@ -498,8 +477,8 @@ RefreshButton.AutoButtonColor = false
 RefreshButton.BorderSizePixel = 0
 RefreshButton.Parent = Frame
 
-ThemeButton.Size = UDim2.new(0.2, -8, 0.1, 0)
-ThemeButton.Position = UDim2.new(0.47, 0, 0.62, 0)
+ThemeButton.Size = UDim2.new(0.43, 0, 0.1, 0)
+ThemeButton.Position = UDim2.new(0.05, 0, 0.69, 0)
 ThemeButton.Text = "C • Theme"
 ThemeButton.Font = Enum.Font.FredokaOne
 ThemeButton.TextSize = 11
@@ -508,8 +487,8 @@ ThemeButton.AutoButtonColor = false
 ThemeButton.BorderSizePixel = 0
 ThemeButton.Parent = Frame
 
-SupportButton.Size = UDim2.new(0.2, -8, 0.1, 0)
-SupportButton.Position = UDim2.new(0.705, 0, 0.62, 0)
+SupportButton.Size = UDim2.new(0.43, 0, 0.1, 0)
+SupportButton.Position = UDim2.new(0.52, 0, 0.69, 0)
 SupportButton.Text = "V • Support"
 SupportButton.Font = Enum.Font.FredokaOne
 SupportButton.TextSize = 11
@@ -518,10 +497,9 @@ SupportButton.AutoButtonColor = false
 SupportButton.BorderSizePixel = 0
 SupportButton.Parent = Frame
 
--- Second Row - Wild Only Button
-WildOnlyButton.Size = UDim2.new(1, -30, 0.1, 0)
-WildOnlyButton.Position = UDim2.new(0, 15, 0.74, 0)
-WildOnlyButton.Text = "WILD ONLY MODE: OFF"
+WildOnlyButton.Size = UDim2.new(0.9, 0, 0.09, 0)
+WildOnlyButton.Position = UDim2.new(0.05, 0, 0.81, 0)
+WildOnlyButton.Text = "B • WILD ONLY: OFF"
 WildOnlyButton.Font = Enum.Font.FredokaOne
 WildOnlyButton.TextSize = 12
 WildOnlyButton.TextScaled = true
@@ -531,7 +509,13 @@ WildOnlyButton.Parent = Frame
 
 GUI.Enabled = false
 
--- Check if player is in group
+local validModels = {}
+local filteredModels = {}
+local currentModelIndex = 1
+local autoUpdateEnabled = true
+local lastUpdateTime = 0
+local UPDATE_INTERVAL = 3
+
 local function isInGroup()
 	local success, result = pcall(function()
 		return Player:IsInGroup(10612101)
@@ -539,7 +523,6 @@ local function isInGroup()
 	return success and result
 end
 
--- Check if player has premium perks (gamepass OR rank 6+)
 local function hasPremiumPerks()
 	local function ownsShirt()
 		local success, result = pcall(function()
@@ -569,7 +552,6 @@ local function hasPremiumPerks()
 	return ownsShirt() or isWhitelisted()
 end
 
--- Notification Function
 local notificationQueue = {}
 local isShowingNotification = false
 
@@ -597,10 +579,10 @@ local function showNotification(message, duration)
 		
 		NotificationLabel.Text = notif.msg
 		NotificationFrame.Visible = true
-		NotificationFrame.Position = UDim2.new(1, 0, 0, 20)
+		NotificationFrame.Position = UDim2.new(1, 0, 0.02, 0)
 		
 		local slideIn = TweenService:Create(NotificationFrame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Position = UDim2.new(1, -340, 0, 20)
+			Position = UDim2.new(0.74, 0, 0.02, 0)
 		})
 		slideIn:Play()
 		slideIn.Completed:Wait()
@@ -608,7 +590,7 @@ local function showNotification(message, duration)
 		task.wait(notif.dur)
 		
 		local slideOut = TweenService:Create(NotificationFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Position = UDim2.new(1, 0, 0, 20)
+			Position = UDim2.new(1, 0, 0.02, 0)
 		})
 		slideOut:Play()
 		slideOut.Completed:Wait()
@@ -620,7 +602,6 @@ local function showNotification(message, duration)
 	task.spawn(processQueue)
 end
 
--- Gradient Animation
 local function animateGradient(gradient)
 	local tween = TweenService:Create(gradient, TweenInfo.new(1.2, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1, true), {
 		Offset = Vector2.new(1, 0)
@@ -629,13 +610,19 @@ local function animateGradient(gradient)
 	return tween
 end
 
--- Button Hover Effect
 local function setupButtonEffects(button, hoverStroke)
 	local originalSize = button.Size
-	local hoverSize = UDim2.new(originalSize.X.Scale, originalSize.X.Offset + 10, originalSize.Y.Scale, originalSize.Y.Offset + 8)
+	local hoverScale = 1.05
+	local pressScale = 0.95
 	
 	button.MouseEnter:Connect(function()
-		TweenService:Create(button, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = hoverSize}):Play()
+		local newSize = UDim2.new(
+			originalSize.X.Scale * hoverScale,
+			originalSize.X.Offset,
+			originalSize.Y.Scale * hoverScale,
+			originalSize.Y.Offset
+		)
+		TweenService:Create(button, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = newSize}):Play()
 		TweenService:Create(hoverStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quad), {Transparency = 0}):Play()
 	end)
 	
@@ -645,8 +632,13 @@ local function setupButtonEffects(button, hoverStroke)
 	end)
 	
 	button.MouseButton1Down:Connect(function()
-		local shrinkSize = UDim2.new(originalSize.X.Scale, originalSize.X.Offset - 5, originalSize.Y.Scale, originalSize.Y.Offset - 4)
-		TweenService:Create(button, TweenInfo.new(0.08, Enum.EasingStyle.Quad), {Size = shrinkSize}):Play()
+		local newSize = UDim2.new(
+			originalSize.X.Scale * pressScale,
+			originalSize.X.Offset,
+			originalSize.Y.Scale * pressScale,
+			originalSize.Y.Offset
+		)
+		TweenService:Create(button, TweenInfo.new(0.08, Enum.EasingStyle.Quad), {Size = newSize}):Play()
 	end)
 	
 	button.MouseButton1Up:Connect(function()
@@ -708,14 +700,6 @@ local function applyTheme(themeName)
 	currentTheme = themeName
 end
 
-local validModels = {}
-local filteredModels = {}
-local currentModelIndex = 1
-local autoUpdateEnabled = true
-local lastUpdateTime = 0
-local UPDATE_INTERVAL = 3
-
--- Check for wild horse
 local function isWildHorse(model)
 	if not model or not model:IsDescendantOf(workspace) then
 		return false
@@ -746,7 +730,6 @@ end
 local function findValidModels()
 	local islandsFolder = workspace:FindFirstChild("Islands")
 	if not islandsFolder then
-		warn("'Islands' folder not found in Workspace")
 		return {}, "Error: Islands Missing"
 	end
 
@@ -768,7 +751,6 @@ local function findValidModels()
 	end
 
 	if not islandContainer then
-		warn("Player's island not identified within 'Islands' folder.")
 		return {}, "Error: Not on Island"
 	end
 
@@ -956,7 +938,6 @@ local function toggleTheme()
 end
 
 local function toggleWildOnly()
-	-- Check if player is in group
 	if not isInGroup() then
 		GroupWarningFrame.Visible = true
 		return
@@ -977,12 +958,12 @@ local function toggleWildOnly()
 		end
 		
 		applyWildOnlyFilter()
-		WildOnlyButton.Text = "WILD ONLY MODE: ON"
+		WildOnlyButton.Text = "B • WILD ONLY: ON"
 		
 		local workingList = getCurrentList()
 		showNotification(string.format("Found %d wild horses!", #workingList), 3)
 	else
-		WildOnlyButton.Text = "WILD ONLY MODE: OFF"
+		WildOnlyButton.Text = "B • WILD ONLY: OFF"
 		showNotification("Wild Only Mode: DISABLED\nAll horses will be shown!", 2)
 	end
 	
@@ -990,7 +971,6 @@ local function toggleWildOnly()
 	updateGUIStatus()
 end
 
--- Create support billboard with animated image
 local function createSupportBillboard()
 	if supportBillboard then
 		supportBillboard:Destroy()
@@ -1020,7 +1000,6 @@ local function createSupportBillboard()
 	
 	supportBillboard = billboard
 	
-	-- Animate up and down movement
 	task.spawn(function()
 		while supportBillboard and supportBillboard.Parent do
 			local upTween = TweenService:Create(billboard, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
@@ -1039,14 +1018,12 @@ local function createSupportBillboard()
 		end
 	end)
 	
-	-- Animate spin every 3 seconds with overshoot
 	task.spawn(function()
 		while supportBillboard and supportBillboard.Parent do
 			task.wait(3)
 			
 			if not supportBillboard or not supportBillboard.Parent then break end
 			
-			-- Spin to 370 degrees (overshoot)
 			local spinTween = TweenService:Create(imageLabel, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 				Rotation = 370
 			})
@@ -1055,14 +1032,12 @@ local function createSupportBillboard()
 			
 			if not supportBillboard or not supportBillboard.Parent then break end
 			
-			-- Bounce back to 360 (0 degrees)
 			local bounceTween = TweenService:Create(imageLabel, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 				Rotation = 360
 			})
 			bounceTween:Play()
 			bounceTween.Completed:Wait()
 			
-			-- Reset rotation to 0 for next cycle
 			imageLabel.Rotation = 0
 		end
 	end)
@@ -1142,7 +1117,7 @@ local function toggleSupport()
 			Humanoid.WalkSpeed = 16
 		end
 		
-		SupportButton.Text = "Support Mode"
+		SupportButton.Text = "V • Support"
 		showNotification("Support Mode: DISABLED", 2)
 	end
 end
@@ -1235,7 +1210,6 @@ local function cleanup()
 	end
 end
 
--- Group Warning Button Click
 GroupWarningButton.MouseButton1Click:Connect(function()
 	local groupLink = "https://www.roblox.com/communities/10612101/Smokex#!/about"
 	
@@ -1249,15 +1223,14 @@ GroupWarningButton.MouseButton1Click:Connect(function()
 	GroupWarningFrame.Visible = false
 end)
 
--- Close warning frame when clicking outside
 GroupWarningFrame.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		local mousePos = UIS:GetMouseLocation()
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		local inputPos = input.Position
 		local framePos = GroupWarningFrame.AbsolutePosition
 		local frameSize = GroupWarningFrame.AbsoluteSize
 		
-		if mousePos.X < framePos.X or mousePos.X > framePos.X + frameSize.X or
-		   mousePos.Y < framePos.Y or mousePos.Y > framePos.Y + frameSize.Y then
+		if inputPos.X < framePos.X or inputPos.X > framePos.X + frameSize.X or
+		   inputPos.Y < framePos.Y or inputPos.Y > framePos.Y + frameSize.Y then
 			GroupWarningFrame.Visible = false
 		end
 	end
@@ -1286,28 +1259,38 @@ safeConnect(UIS.InputBegan, function(input, gameProcessed)
 	end
 end)
 
-local dragInput, mousePos, framePos
+local dragInput, dragStart, frameStart
+local isDragging = false
 
-safeConnect(Frame.InputBegan, function(input)
+Frame.InputBegan:Connect(function(input)
 	if GUI.Enabled == false then return end
-
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragInput = input
-		mousePos = UIS:GetMouseLocation()
-		framePos = Frame.Position
-
-		safeConnect(input.Changed, function()
-			if dragInput and dragInput.UserInputState == Enum.UserInputState.End then
-				dragInput = nil
+	
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		isDragging = true
+		dragStart = input.Position
+		frameStart = Frame.Position
+		
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				isDragging = false
 			end
 		end)
 	end
 end)
 
-safeConnect(RunService.Heartbeat, function()
-	if dragInput and GUI.Enabled then
-		local delta = UIS:GetMouseLocation() - mousePos
-		Frame.Position = UDim2.new(framePos.X.Scale, framePos.X.Offset + delta.X, framePos.Y.Scale, framePos.Y.Offset + delta.Y)
+UIS.InputChanged:Connect(function(input)
+	if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		local delta = input.Position - dragStart
+		local viewportSize = workspace.CurrentCamera.ViewportSize
+		
+		local newPosition = UDim2.new(
+			frameStart.X.Scale,
+			frameStart.X.Offset + delta.X,
+			frameStart.Y.Scale,
+			frameStart.Y.Offset + delta.Y
+		)
+		
+		Frame.Position = newPosition
 	end
 end)
 
