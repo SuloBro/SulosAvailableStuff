@@ -2,20 +2,51 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local MarketplaceService = game:GetService("MarketplaceService")
+local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 
 local PREMIUM_SHIRT_ID = 132268448125497
 local CHECKPOINT_DISTANCE = 20
-local WAIT_BEFORE_START = 7
+local WAIT_BEFORE_START = 6
 local CAR_HEIGHT = 3.7
 local TELEPORT_TIMEOUT = 10
+local SETTINGS_FILE = "SuloAutoRace_Settings.json"
+local RACE_COMPLETE_COOLDOWN = 10
 
-local RACE_NAMES = {
-    Race1 = "City Highway Race",
-    Race2 = "Rainbow Bridge Sprint",
-    Race3 = "Doro Sprint",
-    Race4 = "Rainbow Rinkai Doro Sprint"
-}
+local SHUTOKO_PLACE_ID = 13822562292
+local SALTFLATS_PLACE_ID = 139048751758942
+local currentPlaceId = game.PlaceId
+
+local isShutoko = (currentPlaceId == SHUTOKO_PLACE_ID)
+local isSaltFlats = (currentPlaceId == SALTFLATS_PLACE_ID)
+
+local RACE_NAMES = {}
+local selectedRace = ""
+local raceKeys = {}
+local premiumRaceIndices = {}
+
+if isShutoko then
+    RACE_NAMES = {
+        Race1 = "City Highway Race",
+        Race2 = "Rainbow Bridge Sprint",
+        Race3 = "Doro Sprint",
+        Race4 = "Rainbow Rinkai Doro Sprint"
+    }
+    selectedRace = "Race1"
+    raceKeys = {"Race1", "Race2", "Race3", "Race4"}
+    premiumRaceIndices = {3, 4}
+elseif isSaltFlats then
+    RACE_NAMES = {
+        Race5 = "Interstate 80 Sprint",
+        Race6 = "Cross-Country Sprint",
+        Race7 = "Salt Flats Drag",
+        Race8 = "Salt Flats Grand Prix",
+        Race9 = "Salt Flats MotoGP"
+    }
+    selectedRace = "Race5"
+    raceKeys = {"Race5", "Race6", "Race7", "Race8", "Race9"}
+    premiumRaceIndices = {3, 4, 5}
+end
 
 local MANUAL_CHECKPOINTS = {
     Race1 = {
@@ -35,7 +66,6 @@ local MANUAL_CHECKPOINTS = {
     }
 }
 
-local selectedRace = "Race1"
 local raceActive = false
 local currentCheckpoint = 1
 local carModel = nil
@@ -46,6 +76,70 @@ local finishReached = false
 local currentSpeed = 2
 local checkpointStartTime = 0
 local lastCheckpointNumber = 0
+local autoStartEnabled = false
+local totalRacesCompleted = 0
+local lastRaceCompleteTime = 0
+local hasIncrementedRace = false
+
+local savedSettings = {
+    selectedRaceShutoko = "Race1",
+    selectedRaceSaltFlats = "Race5",
+    speed = 2,
+    autoStart = false,
+    totalRaces = 0
+}
+
+local function SaveSettings()
+    local settings = {
+        selectedRaceShutoko = isShutoko and selectedRace or savedSettings.selectedRaceShutoko,
+        selectedRaceSaltFlats = isSaltFlats and selectedRace or savedSettings.selectedRaceSaltFlats,
+        speed = math.floor(currentSpeed * 10) / 10,
+        autoStart = autoStartEnabled,
+        totalRaces = totalRacesCompleted,
+        username = player.Name
+    }
+    
+    savedSettings = settings
+    
+    pcall(function()
+        writefile(SETTINGS_FILE, HttpService:JSONEncode(settings))
+    end)
+end
+
+local function LoadSettings()
+    local success, result = pcall(function()
+        return readfile(SETTINGS_FILE)
+    end)
+    
+    if success and result then
+        local decoded = HttpService:JSONDecode(result)
+        
+        if decoded.username == player.Name then
+            if isShutoko and decoded.selectedRaceShutoko and RACE_NAMES[decoded.selectedRaceShutoko] then
+                selectedRace = decoded.selectedRaceShutoko
+            elseif isSaltFlats and decoded.selectedRaceSaltFlats and RACE_NAMES[decoded.selectedRaceSaltFlats] then
+                selectedRace = decoded.selectedRaceSaltFlats
+            end
+            
+            if decoded.speed then
+                currentSpeed = math.floor(decoded.speed * 10) / 10
+            end
+            
+            if decoded.autoStart ~= nil then
+                autoStartEnabled = decoded.autoStart
+            end
+            
+            if decoded.totalRaces then
+                totalRacesCompleted = decoded.totalRaces
+            end
+            
+            savedSettings = decoded
+            return true
+        end
+    end
+    
+    return false
+end
 
 local function CheckPremiumStatus()
     if player.Name == "ongdied" then
@@ -175,6 +269,24 @@ local function IsCheckpointCollected(checkpoint)
     return checkpoint.Transparency >= 0.95
 end
 
+local function FindNextUncollectedCheckpoint()
+    local folder = GetCheckpointsFolder()
+    if not folder then return 1 end
+    
+    for i = 1, 100 do
+        local checkpoint = folder:FindFirstChild(tostring(i))
+        if checkpoint and checkpoint:IsA("BasePart") then
+            if not IsCheckpointCollected(checkpoint) then
+                return i
+            end
+        else
+            return i
+        end
+    end
+    
+    return 1
+end
+
 local function IsPlayerInCar()
     if not player.Character then return false end
     
@@ -260,6 +372,7 @@ end
 local function StopRacing()
     raceActive = false
     finishReached = false
+    hasIncrementedRace = false
     
     if checkpointDetectionLoop then
         checkpointDetectionLoop:Disconnect()
@@ -282,6 +395,8 @@ local statusText = nil
 local startButton = nil
 local stopButton = nil
 local resetButton = nil
+local autoStartToggle = nil
+local statsText = nil
 
 local function PlayShineEffect(button)
     local existingShine = button:FindFirstChild("ShineFrame")
@@ -428,6 +543,33 @@ local function AnimateButtonsOut()
     PlayShineEffect(startButton)
 end
 
+local function CompleteRace()
+    if not hasIncrementedRace then
+        totalRacesCompleted = totalRacesCompleted + 1
+        hasIncrementedRace = true
+        lastRaceCompleteTime = tick()
+        SaveSettings()
+        if statsText then
+            statsText.Text = "Total Races: " .. totalRacesCompleted
+        end
+    end
+    
+    if statusText then
+        statusText.Text = "Status: Race Completed"
+        statusText.TextColor3 = Color3.fromRGB(100, 255, 100)
+    end
+    
+    StopRacing()
+    AnimateButtonsOut()
+    
+    if autoStartEnabled then
+        task.wait(RACE_COMPLETE_COOLDOWN)
+        if IsInRaceUI() and IsPlayerInCar() and not raceActive then
+            StartRacing()
+        end
+    end
+end
+
 local function StartRacing()
     if raceActive then return end
     
@@ -465,6 +607,7 @@ local function StartRacing()
     finishReached = false
     checkpointStartTime = tick()
     lastCheckpointNumber = 1
+    hasIncrementedRace = false
     
     CheckPremiumStatus()
     
@@ -504,12 +647,13 @@ local function StartRacing()
             end
         end)
         
+        local lastRescanTime = tick()
+        
         checkpointDetectionLoop = RunService.Heartbeat:Connect(function()
             if not raceActive then return end
             
             if HasRaceEnded() then
-                StopRacing()
-                AnimateButtonsOut()
+                CompleteRace()
                 return
             end
             
@@ -531,7 +675,18 @@ local function StartRacing()
                 return
             end
             
-            if finishReached then return end
+            if finishReached then
+                return
+            end
+            
+            if tick() - lastRescanTime >= 2 then
+                local nextUncollected = FindNextUncollectedCheckpoint()
+                if nextUncollected > currentCheckpoint and nextUncollected ~= currentCheckpoint then
+                    currentCheckpoint = nextUncollected
+                    checkpointStartTime = tick()
+                end
+                lastRescanTime = tick()
+            end
             
             if currentCheckpoint ~= lastCheckpointNumber then
                 checkpointStartTime = tick()
@@ -539,20 +694,11 @@ local function StartRacing()
             end
             
             local checkpoint = FindCheckpoint(currentCheckpoint)
-            local manualCheckpoint = GetManualCheckpointPosition(currentCheckpoint)
             
-            if (checkpoint and IsCheckpointCollected(checkpoint)) or (manualCheckpoint and not checkpoint) then
-                local carPos = carPrimary.Position
-                local checkpointPos = checkpoint and checkpoint.Position or manualCheckpoint
-                
-                if checkpointPos then
-                    local distance = (carPos - checkpointPos).Magnitude
-                    if distance <= CHECKPOINT_DISTANCE then
-                        currentCheckpoint = currentCheckpoint + 1
-                        checkpointStartTime = tick()
-                        return
-                    end
-                end
+            if checkpoint and IsCheckpointCollected(checkpoint) then
+                currentCheckpoint = currentCheckpoint + 1
+                checkpointStartTime = tick()
+                return
             end
             
             local targetPos = GetTargetPosition()
@@ -569,40 +715,17 @@ local function StartRacing()
             else
                 local finish = FindFinish()
                 if finish then
-                    local distance = (carPrimary.Position - finish.Position).Magnitude
-                    
-                    if distance <= CHECKPOINT_DISTANCE and IsCheckpointCollected(finish) and not finishReached then
+                    if IsCheckpointCollected(finish) then
                         finishReached = true
                         if statusText then
                             statusText.Text = "Status: Finishing..."
                             statusText.TextColor3 = Color3.fromRGB(100, 255, 255)
                         end
-                        task.wait(3)
-                        if statusText then
-                            statusText.Text = "Status: Race Completed"
-                            statusText.TextColor3 = Color3.fromRGB(100, 255, 100)
-                        end
-                        StopRacing()
-                        AnimateButtonsOut()
+                        task.wait(1)
+                        CompleteRace()
                         return
                     else
                         MoveCarSmoothly(finish.Position)
-                    end
-                else
-                    if carPrimary then
-                        local forwardDirection = carPrimary.CFrame.LookVector
-                        local lookDirection = Vector3.new(forwardDirection.X, 0, forwardDirection.Z).Unit
-                        
-                        if lookDirection.Magnitude > 0 then
-                            local currentPos = carPrimary.Position
-                            local newPos = currentPos + (lookDirection * currentSpeed)
-                            
-                            local targetCFrame = CFrame.new(newPos, newPos + lookDirection)
-                            carModel:SetPrimaryPartCFrame(targetCFrame)
-                            
-                            carPrimary.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                            carPrimary.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-                        end
                     end
                 end
             end
@@ -618,8 +741,8 @@ guiScreen.IgnoreGuiInset = true
 guiScreen.Parent = player.PlayerGui
 
 local guiFrame = Instance.new("Frame")
-guiFrame.Size = UDim2.new(0, 360, 0, 380)
-guiFrame.Position = UDim2.new(0.5, -180, 0.5, -190)
+guiFrame.Size = UDim2.new(0, 360, 0, 430)
+guiFrame.Position = UDim2.new(0.5, -180, 0.5, -215)
 guiFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 28)
 guiFrame.BorderSizePixel = 0
 guiFrame.Parent = guiScreen
@@ -645,22 +768,72 @@ title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = guiFrame
 
 local subtitle = Instance.new("TextLabel")
-subtitle.Size = UDim2.new(1, -20, 0, 16)
+subtitle.Size = UDim2.new(1, -20, 0, 22)
 subtitle.Position = UDim2.new(0, 10, 0, 42)
 subtitle.BackgroundTransparency = 1
-subtitle.Text = "Premium Users will complete the race faster"
-subtitle.TextColor3 = Color3.fromRGB(150, 150, 150)
-subtitle.TextSize = 11
-subtitle.Font = Enum.Font.Gotham
+subtitle.Font = Enum.Font.GothamBold
+subtitle.TextSize = 13
 subtitle.TextXAlignment = Enum.TextXAlignment.Left
 subtitle.Parent = guiFrame
 
+if isShutoko then
+    subtitle.Text = "Current Map: Shutoko Expressway"
+    subtitle.TextColor3 = Color3.fromRGB(100, 200, 255)
+    
+    local cityGradient = Instance.new("UIGradient")
+    cityGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(80, 180, 255)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(150, 220, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 180, 255))
+    }
+    cityGradient.Offset = Vector2.new(-1, 0)
+    cityGradient.Parent = subtitle
+    
+    spawn(function()
+        while subtitle.Parent do
+            local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+            local tween = TweenService:Create(cityGradient, tweenInfo, {Offset = Vector2.new(1, 0)})
+            tween:Play()
+            tween.Completed:Wait()
+            cityGradient.Offset = Vector2.new(-1, 0)
+            task.wait(0.5)
+        end
+    end)
+elseif isSaltFlats then
+    subtitle.Text = "Current Map: Boneville Salt Flats"
+    subtitle.TextColor3 = Color3.fromRGB(255, 200, 100)
+    
+    local desertGradient = Instance.new("UIGradient")
+    desertGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 180, 80)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 220, 120)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 180, 80))
+    }
+    desertGradient.Offset = Vector2.new(-1, 0)
+    desertGradient.Parent = subtitle
+    
+    spawn(function()
+        while subtitle.Parent do
+            local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+            local tween = TweenService:Create(desertGradient, tweenInfo, {Offset = Vector2.new(1, 0)})
+            tween:Play()
+            tween.Completed:Wait()
+            desertGradient.Offset = Vector2.new(-1, 0)
+            task.wait(0.5)
+        end
+    end)
+else
+    subtitle.Text = "Premium Users Complete Faster"
+    subtitle.TextColor3 = Color3.fromRGB(150, 150, 150)
+    subtitle.TextSize = 11
+end
+
 local raceDropdown = Instance.new("TextButton")
 raceDropdown.Size = UDim2.new(1, -20, 0, 40)
-raceDropdown.Position = UDim2.new(0, 10, 0, 70)
+raceDropdown.Position = UDim2.new(0, 10, 0, 75)
 raceDropdown.BackgroundColor3 = Color3.fromRGB(35, 35, 38)
 raceDropdown.BorderSizePixel = 0
-raceDropdown.Text = "City Highway Race"
+raceDropdown.Text = RACE_NAMES[selectedRace] or "Select Race"
 raceDropdown.TextColor3 = Color3.fromRGB(220, 220, 220)
 raceDropdown.TextSize = 14
 raceDropdown.Font = Enum.Font.GothamMedium
@@ -691,8 +864,8 @@ dropdownArrow.Font = Enum.Font.GothamBold
 dropdownArrow.Parent = raceDropdown
 
 local dropdownList = Instance.new("Frame")
-dropdownList.Size = UDim2.new(1, -20, 0, 164)
-dropdownList.Position = UDim2.new(0, 10, 0, 115)
+dropdownList.Size = UDim2.new(1, -20, 0, #raceKeys * 42)
+dropdownList.Position = UDim2.new(0, 10, 0, 120)
 dropdownList.BackgroundColor3 = Color3.fromRGB(32, 32, 35)
 dropdownList.BorderSizePixel = 0
 dropdownList.Visible = false
@@ -713,11 +886,20 @@ listLayout.Padding = UDim.new(0, 2)
 listLayout.Parent = dropdownList
 
 CheckPremiumStatus()
+LoadSettings()
 
-for i = 1, 4 do
-    local raceKey = "Race" .. i
+raceDropdown.Text = RACE_NAMES[selectedRace] or "Select Race"
+
+for i, raceKey in ipairs(raceKeys) do
     local raceName = RACE_NAMES[raceKey]
-    local isPremiumRace = (i == 3 or i == 4)
+    local isPremiumRace = false
+    
+    for _, idx in ipairs(premiumRaceIndices) do
+        if i == idx then
+            isPremiumRace = true
+            break
+        end
+    end
     
     local raceOption = Instance.new("TextButton")
     raceOption.Size = UDim2.new(1, 0, 0, 40)
@@ -775,7 +957,7 @@ for i = 1, 4 do
         topCorner.Parent = raceOption
     end
     
-    if i == 4 then
+    if i == #raceKeys then
         local bottomCorner = Instance.new("UICorner")
         bottomCorner.CornerRadius = UDim.new(0, 10)
         bottomCorner.Parent = raceOption
@@ -800,6 +982,7 @@ for i = 1, 4 do
         raceDropdown.Text = raceName
         dropdownList.Visible = false
         dropdownArrow.Text = "v"
+        SaveSettings()
     end)
 end
 
@@ -810,9 +993,9 @@ end)
 
 local speedLabel = Instance.new("TextLabel")
 speedLabel.Size = UDim2.new(1, -20, 0, 20)
-speedLabel.Position = UDim2.new(0, 10, 0, 120)
+speedLabel.Position = UDim2.new(0, 10, 0, 125)
 speedLabel.BackgroundTransparency = 1
-speedLabel.Text = "Speed: 2"
+speedLabel.Text = "Speed: " .. (math.floor(currentSpeed * 10) / 10)
 speedLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
 speedLabel.TextSize = 13
 speedLabel.Font = Enum.Font.GothamMedium
@@ -821,7 +1004,7 @@ speedLabel.Parent = guiFrame
 
 local speedSlider = Instance.new("Frame")
 speedSlider.Size = UDim2.new(1, -20, 0, 6)
-speedSlider.Position = UDim2.new(0, 10, 0, 145)
+speedSlider.Position = UDim2.new(0, 10, 0, 150)
 speedSlider.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
 speedSlider.BorderSizePixel = 0
 speedSlider.Parent = guiFrame
@@ -830,8 +1013,9 @@ local sliderCorner = Instance.new("UICorner")
 sliderCorner.CornerRadius = UDim.new(1, 0)
 sliderCorner.Parent = speedSlider
 
+local initialSpeedPercent = (currentSpeed - 1) / 23
 local speedFill = Instance.new("Frame")
-speedFill.Size = UDim2.new(0.0476, 0, 1, 0)
+speedFill.Size = UDim2.new(initialSpeedPercent, 0, 1, 0)
 speedFill.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
 speedFill.BorderSizePixel = 0
 speedFill.Parent = speedSlider
@@ -842,7 +1026,7 @@ fillCorner.Parent = speedFill
 
 local speedKnob = Instance.new("TextButton")
 speedKnob.Size = UDim2.new(0, 16, 0, 16)
-speedKnob.Position = UDim2.new(0.0476, -8, 0.5, -8)
+speedKnob.Position = UDim2.new(initialSpeedPercent, -8, 0.5, -8)
 speedKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 speedKnob.BorderSizePixel = 0
 speedKnob.Text = ""
@@ -863,6 +1047,7 @@ end)
 speedKnob.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = false
+        SaveSettings()
     end
 end)
 
@@ -891,9 +1076,9 @@ game:GetService("UserInputService").InputChanged:Connect(function(input)
         if not isPremium and currentSpeed >= premiumThreshold then
             speedLabel.Text = "Speed: " .. speedRounded .. " (Only premium can go faster)"
             speedLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
-        elseif currentSpeed > 10 then
-            speedLabel.Text = "Speed ( This fast could get you banned ): " .. speedRounded
-            speedLabel.TextColor3 = Color3.fromRGB(255, 220, 0)
+        elseif currentSpeed >= 7.5 then
+            speedLabel.Text = "⚠ Speed: " .. speedRounded .. " (Risk of ban!) ⚠"
+            speedLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
         else
             speedLabel.Text = "Speed: " .. speedRounded
             speedLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -901,9 +1086,32 @@ game:GetService("UserInputService").InputChanged:Connect(function(input)
     end
 end)
 
+autoStartToggle = Instance.new("TextButton")
+autoStartToggle.Size = UDim2.new(1, -20, 0, 35)
+autoStartToggle.Position = UDim2.new(0, 10, 0, 165)
+autoStartToggle.BackgroundColor3 = autoStartEnabled and Color3.fromRGB(50, 120, 50) or Color3.fromRGB(40, 40, 45)
+autoStartToggle.BorderSizePixel = 0
+autoStartToggle.Text = "Auto-Start: " .. (autoStartEnabled and "ON" or "OFF")
+autoStartToggle.TextColor3 = Color3.fromRGB(220, 220, 220)
+autoStartToggle.TextSize = 13
+autoStartToggle.Font = Enum.Font.GothamBold
+autoStartToggle.Parent = guiFrame
+
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 8)
+toggleCorner.Parent = autoStartToggle
+
+autoStartToggle.MouseButton1Click:Connect(function()
+    autoStartEnabled = not autoStartEnabled
+    autoStartToggle.Text = "Auto-Start: " .. (autoStartEnabled and "ON" or "OFF")
+    autoStartToggle.BackgroundColor3 = autoStartEnabled and Color3.fromRGB(50, 120, 50) or Color3.fromRGB(40, 40, 45)
+    SaveSettings()
+    PlayShineEffect(autoStartToggle)
+end)
+
 statusText = Instance.new("TextLabel")
 statusText.Size = UDim2.new(1, -20, 0, 22)
-statusText.Position = UDim2.new(0, 10, 0, 165)
+statusText.Position = UDim2.new(0, 10, 0, 210)
 statusText.BackgroundTransparency = 1
 statusText.Text = "Status: Idle"
 statusText.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -914,7 +1122,7 @@ statusText.Parent = guiFrame
 
 local checkpointText = Instance.new("TextLabel")
 checkpointText.Size = UDim2.new(1, -20, 0, 22)
-checkpointText.Position = UDim2.new(0, 10, 0, 190)
+checkpointText.Position = UDim2.new(0, 10, 0, 235)
 checkpointText.BackgroundTransparency = 1
 checkpointText.Text = "Checkpoint: 0"
 checkpointText.TextColor3 = Color3.fromRGB(180, 180, 180)
@@ -923,9 +1131,20 @@ checkpointText.Font = Enum.Font.GothamMedium
 checkpointText.TextXAlignment = Enum.TextXAlignment.Left
 checkpointText.Parent = guiFrame
 
+statsText = Instance.new("TextLabel")
+statsText.Size = UDim2.new(1, -20, 0, 22)
+statsText.Position = UDim2.new(0, 10, 0, 260)
+statsText.BackgroundTransparency = 1
+statsText.Text = "Total Races: " .. totalRacesCompleted
+statsText.TextColor3 = Color3.fromRGB(100, 200, 255)
+statsText.TextSize = 13
+statsText.Font = Enum.Font.GothamBold
+statsText.TextXAlignment = Enum.TextXAlignment.Left
+statsText.Parent = guiFrame
+
 local playerIcon = Instance.new("ImageLabel")
 playerIcon.Size = UDim2.new(0, 35, 0, 35)
-playerIcon.Position = UDim2.new(1, -45, 0, 218)
+playerIcon.Position = UDim2.new(1, -45, 0, 288)
 playerIcon.BackgroundTransparency = 1
 playerIcon.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. player.UserId .. "&width=150&height=150&format=png"
 playerIcon.Parent = guiFrame
@@ -941,7 +1160,7 @@ iconStroke.Parent = playerIcon
 
 local usernameText = Instance.new("TextLabel")
 usernameText.Size = UDim2.new(1, -90, 0, 20)
-usernameText.Position = UDim2.new(0, 10, 0, 225)
+usernameText.Position = UDim2.new(0, 10, 0, 295)
 usernameText.BackgroundTransparency = 1
 usernameText.Text = "@" .. player.DisplayName
 usernameText.TextColor3 = Color3.fromRGB(120, 120, 120)
@@ -952,7 +1171,7 @@ usernameText.Parent = guiFrame
 
 local premiumStatusText = Instance.new("TextLabel")
 premiumStatusText.Size = UDim2.new(1, -90, 0, 18)
-premiumStatusText.Position = UDim2.new(0, 10, 0, 245)
+premiumStatusText.Position = UDim2.new(0, 10, 0, 315)
 premiumStatusText.BackgroundTransparency = 1
 premiumStatusText.Text = "Premium: " .. (isPremium and "Active" or "Inactive")
 premiumStatusText.TextColor3 = isPremium and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(150, 150, 150)
@@ -1016,7 +1235,7 @@ end)
 
 startButton = Instance.new("TextButton")
 startButton.Size = UDim2.new(1, -20, 0, 50)
-startButton.Position = UDim2.new(0, 10, 0, 275)
+startButton.Position = UDim2.new(0, 10, 0, 345)
 startButton.Text = "Start Farm"
 startButton.TextColor3 = Color3.fromRGB(0, 0, 0)
 startButton.TextSize = 15
@@ -1042,7 +1261,7 @@ startGradient.Parent = startButton
 
 stopButton = Instance.new("TextButton")
 stopButton.Size = UDim2.new(1, -20, 0, 0)
-stopButton.Position = UDim2.new(0, 10, 0, 275)
+stopButton.Position = UDim2.new(0, 10, 0, 345)
 stopButton.Text = "Stop Race"
 stopButton.TextColor3 = Color3.fromRGB(0, 0, 0)
 stopButton.TextSize = 15
@@ -1069,7 +1288,7 @@ stopGradient.Parent = stopButton
 
 resetButton = Instance.new("TextButton")
 resetButton.Size = UDim2.new(1, -20, 0, 0)
-resetButton.Position = UDim2.new(0, 10, 0, 330)
+resetButton.Position = UDim2.new(0, 10, 0, 400)
 resetButton.Text = "Reset Race"
 resetButton.TextColor3 = Color3.fromRGB(0, 0, 0)
 resetButton.TextSize = 14
@@ -1124,6 +1343,7 @@ end
 
 addButtonHover(startButton, 1.05)
 addButtonHover(raceDropdown, 1.02)
+addButtonHover(autoStartToggle, 1.02)
 
 startButton.MouseButton1Click:Connect(function()
     if not IsPlayerInCar() then
@@ -1207,5 +1427,28 @@ end)
 game:GetService("UserInputService").InputChanged:Connect(function(input)
     if input == dragInput and frameDragging then
         update(input)
+    end
+end)
+
+spawn(function()
+    while task.wait(0.8) do
+        if autoStartEnabled and not raceActive then
+            local races = workspace:FindFirstChild("Races")
+            if races and IsInRaceUI() and IsPlayerInCar() then
+                local timeSinceLastRace = tick() - lastRaceCompleteTime
+                if timeSinceLastRace >= RACE_COMPLETE_COOLDOWN then
+                    task.wait(7)
+                    if autoStartEnabled and not raceActive and IsInRaceUI() and IsPlayerInCar() then
+                        StartRacing()
+                    end
+                end
+            end
+        end
+    end
+end)
+
+game:GetService("Players").PlayerRemoving:Connect(function(plr)
+    if plr == player then
+        SaveSettings()
     end
 end)
