@@ -142,7 +142,7 @@ local function LoadSettings()
 end
 
 local function CheckPremiumStatus()
-    if player.Name == "ongdied" then
+    if player.Name == "Number1" then --ongdied
         isPremium = true
         return isPremium
     end
