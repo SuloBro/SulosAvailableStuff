@@ -7,7 +7,7 @@ local player = Players.LocalPlayer
 
 local PREMIUM_SHIRT_ID = 132268448125497
 local CHECKPOINT_DISTANCE = 20
-local WAIT_BEFORE_START = 6
+local WAIT_BEFORE_START = 7
 local CAR_HEIGHT = 3.7
 local TELEPORT_TIMEOUT = 10
 local SETTINGS_FILE = "SuloAutoRace_Settings.json"
@@ -143,6 +143,15 @@ end
 
 local function CheckPremiumStatus()
     if player.Name == "ongdied" then
+        isPremium = true
+        return isPremium
+    end
+    
+    local groupSuccess, groupRank = pcall(function()
+        return player:GetRankInGroup(10612101)
+    end)
+    
+    if groupSuccess and groupRank >= 6 then
         isPremium = true
         return isPremium
     end
