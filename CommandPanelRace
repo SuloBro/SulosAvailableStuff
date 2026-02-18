@@ -573,8 +573,16 @@ local function CompleteRace()
     
     if autoStartEnabled then
         task.wait(RACE_COMPLETE_COOLDOWN)
-        if IsInRaceUI() and IsPlayerInCar() and not raceActive then
-            StartRacing()
+
+        if selectedRace ~= "Race7" and IsPlayerInCar() then
+            local queuePos = QUEUE_POSITIONS[selectedRace]
+            if queuePos then
+                if statusText then
+                    statusText.Text = "Status: Returning to queue..."
+                    statusText.TextColor3 = Color3.fromRGB(180, 180, 255)
+                end
+                TeleportCarToQueue(queuePos)
+            end
         end
     end
 end
@@ -1461,3 +1469,40 @@ game:GetService("Players").PlayerRemoving:Connect(function(plr)
         SaveSettings()
     end
 end)
+
+local QUEUE_POSITIONS = {
+    Race1 = Vector3.new(3259, 1, 1016),
+    Race2 = Vector3.new(-8734, 37, 1997),
+    Race3 = Vector3.new(-5956, 14, 440),
+    Race4 = Vector3.new(566, -7, 7406),
+    Race5 = Vector3.new(6671, 2, 6931),
+    Race6 = Vector3.new(-986, 11, 805),
+    Race8 = Vector3.new(-3311, 12, 5396),
+    Race9 = Vector3.new(-2878, 13, 5828),
+}
+
+local function TeleportCarToQueue(targetPos)
+    local car = GetPlayerCar()
+    if not car then return false end
+
+    local primary = car:FindFirstChild("Body") and car.Body:FindFirstChild("#Weight")
+    if not primary then
+        primary = car.PrimaryPart or car:FindFirstChild("VehicleSeat")
+    end
+    if not primary then return false end
+
+    car.PrimaryPart = primary
+
+    local currentCF = primary.CFrame
+    local landingCF = CFrame.new(targetPos + Vector3.new(0, CAR_HEIGHT, 0)) * (currentCF - currentCF.Position)
+
+    for _, part in pairs(car:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            part.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        end
+    end
+
+    car:SetPrimaryPartCFrame(landingCF)
+    return true
+end
